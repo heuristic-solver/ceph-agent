@@ -1,0 +1,24 @@
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: cb8c523fd4835aba42af70f4cad5568db4df0b6c  # frozen: v0.16.0
+    hooks:
+      - id: ruff-check
+      - id: ruff-format
+  - repo: https://github.com/astral-sh/uv-pre-commit
+    rev: 5900cba2cfe6d20f562458d4d308ac55569f92eb  # frozen: 0.12.0
+    hooks:
+      - id: uv-lock
+  - repo: https://github.com/codespell-project/codespell
+    rev: 57b21406f092110c18776e39b0bda50d37c945c8  # frozen: v2.4.3
+    hooks:
+      - id: codespell
+        additional_dependencies:
+          - tomli
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: 3e8a8703264a2f4a69428a0aa4dcb512790b2c8c  # frozen: v6.0.0
+    hooks:
+      - id: check-merge-conflict
+      - id: debug-statements
+      - id: fix-byte-order-marker
+      - id: trailing-whitespace
+      - id: end-of-file-fixer

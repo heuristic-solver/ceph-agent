@@ -1,0 +1,30 @@
+{
+  "generated_at": "2026-08-26 17:07:18",
+  "total_chunks": 1610,
+  "releases_included": {
+    "pacific": {
+      "name": "Pacific",
+      "version": "16.2",
+      "chunks_count": 400,
+      "pages_scraped": 30
+    },
+    "quincy": {
+      "name": "Quincy",
+      "version": "17.2",
+      "chunks_count": 384,
+      "pages_scraped": 30
+    },
+    "reef": {
+      "name": "Reef",
+      "version": "18.2",
+      "chunks_count": 401,
+      "pages_scraped": 30
+    },
+    "squid": {
+      "name": "Squid",
+      "version": "19.2",
+      "chunks_count": 425,
+      "pages_scraped": 30
+    }
+  }
+}

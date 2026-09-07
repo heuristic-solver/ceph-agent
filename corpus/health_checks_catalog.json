@@ -1,0 +1,1317 @@
+{
+  "DAEMON_OLD_VERSION": {
+    "code": "DAEMON_OLD_VERSION",
+    "heading": "DAEMON_OLD_VERSION",
+    "severity": "HEALTH_WARN",
+    "summary": "One or more Ceph daemons are running an old Ceph release.  A health check is\nraised if multiple versions are detected.  This condition must exist for a\nperiod of time greater than mon_warn_older_version_delay (set to one week\nby default) in order for",
+    "description": "One or more Ceph daemons are running an old Ceph release.  A health check is\nraised if multiple versions are detected.  This condition must exist for a\nperiod of time greater than mon_warn_older_version_delay (set to one week\nby default) in order for the health check to be raised. This allows most\nupgrades to proceed without raising a warning that is both expected and\nephemeral. If the upgrade is paused for an extended time, health mute can\nbe used by running ceph health mute DAEMON_OLD_VERSION --sticky. Be sure,\nhowever, to run ceph health unmute DAEMON_OLD_VERSION after the upgrade has\nfinished so that any future, unexpected instances are not masked.",
+    "resolution_commands": [
+      "ceph health mute DAEMON_OLD_VERSION --sticky. Be sure",
+      "ceph health unmute DAEMON_OLD_VERSION after the upgrade has"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/rados/operations/health-checks/#daemon-old-version",
+    "ceph_version": "17.2.8"
+  },
+  "MON_DOWN": {
+    "code": "MON_DOWN",
+    "heading": "MON_DOWN",
+    "severity": "HEALTH_WARN",
+    "summary": "One or more Ceph Monitor daemons are down. The cluster requires a majority\n(more than one-half) of the provsioned monitors to be available. When one or\nmore monitors are down, clients may have a harder time forming their initial\nconnection to the clu",
+    "description": "One or more Ceph Monitor daemons are down. The cluster requires a majority\n(more than one-half) of the provsioned monitors to be available. When one or\nmore monitors are down, clients may have a harder time forming their initial\nconnection to the cluster, as they may need to try additional IP addresses\nbefore they reach an operating monitor.\n\nDown monitor daemons should be restored or restarted as soon as possible to\nreduce the risk that an additional monitor failure may cause a service outage.",
+    "resolution_commands": [
+      "ceph mon stat",
+      "systemctl restart ceph-mon@$(hostname)",
+      "ceph orch restart mon"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/rados/operations/health-checks/#mon-down",
+    "ceph_version": "17.2.8"
+  },
+  "MON_CLOCK_SKEW": {
+    "code": "MON_CLOCK_SKEW",
+    "heading": "MON_CLOCK_SKEW",
+    "severity": "HEALTH_WARN",
+    "summary": "The clocks on hosts running Ceph Monitor daemons are not well-synchronized.\nThis health check is raised if the cluster detects a clock skew greater than\nmon_clock_drift_allowed.",
+    "description": "The clocks on hosts running Ceph Monitor daemons are not well-synchronized.\nThis health check is raised if the cluster detects a clock skew greater than\nmon_clock_drift_allowed.\n\nThis issue is best resolved by synchronizing the clocks by using a tool like\nthe legacy ntpd or the newer chrony.  It is ideal to configure NTP\ndaemons to sync against multiple internal and external sources for resilience;\nthe protocol will adaptively determine the best available source.  It is also\nbeneficial to have the NTP daemons on Ceph Monitor hosts sync against each\nother, as it is even more important that Monitors be synchronized with each\nother than it is for them to be _correct_ with respect to reference time.\n\nIf it is impractical to keep the clocks closely synchronized, the\nmon_clock_drift_allowed threshold can be increased. However, this value\nmust stay significantly below the mon_lease interval in order for the\nmonitor cluster to function properly.  It is not difficult with a quality NTP\nor PTP configuration to have sub-millisecond synchronization, so there are\nvery, very few occasions when it is appropriate to change this value.",
+    "resolution_commands": [
+      "systemctl restart chronyd || systemctl restart ntp",
+      "ceph health mute MON_CLOCK_SKEW --sticky"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/rados/operations/health-checks/#mon-clock-skew",
+    "ceph_version": "17.2.8"
+  },
+  "MON_MSGR2_NOT_ENABLED": {
+    "code": "MON_MSGR2_NOT_ENABLED",
+    "heading": "MON_MSGR2_NOT_ENABLED",
+    "severity": "HEALTH_WARN",
+    "summary": "The ms_bind_msgr2 option is enabled but one or more monitors are not\nconfigured in the cluster’s monmap to bind to a v2 port. This means that\nfeatures specific to the msgr2 protocol (for example, encryption) are\nunavailable on some or all connections",
+    "description": "The ms_bind_msgr2 option is enabled but one or more monitors are not\nconfigured in the cluster’s monmap to bind to a v2 port. This means that\nfeatures specific to the msgr2 protocol (for example, encryption) are\nunavailable on some or all connections.\n\nIn most cases this can be corrected by running the following command:\n\nceph mon enable-msgr2\n\nAfter this command is run, any monitor configured to listen on the old default\nport (6789) will continue to listen for v1 connections on 6789 and begin to\nlisten for v2 connections on the new default port 3300.\n\nIf a monitor is configured to listen for v1 connections on a non-standard port\n(that is, a port other than 6789), the monmap will need to be modified\nmanually.",
+    "resolution_commands": [
+      "ceph mon enable-msgr2"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/rados/operations/health-checks/#mon-msgr2-not-enabled",
+    "ceph_version": "17.2.8"
+  },
+  "MON_DISK_LOW": {
+    "code": "MON_DISK_LOW",
+    "heading": "MON_DISK_LOW",
+    "severity": "HEALTH_WARN",
+    "summary": "One or more monitors are low on storage space. This health check is raised if\nthe percentage of available space on the file system used by the monitor\ndatabase (normally /var/lib/ceph/mon) drops below the percentage value\nmon_data_avail_warn (default",
+    "description": "One or more monitors are low on storage space. This health check is raised if\nthe percentage of available space on the file system used by the monitor\ndatabase (normally /var/lib/ceph/mon) drops below the percentage value\nmon_data_avail_warn (default: 30%).\n\nThis alert might indicate that some other process or user on the system is\nfilling up the file system used by the monitor. It might also indicate that the\nmonitor database is too large (see MON_DISK_BIG below).  Another common\nscenario is that Ceph logging subsystem levels have been raised for\ntroubleshooting purposes without subsequent return to default levels.  Ongoing\nverbose logging can easily fill up the files system containing /var/log. If\nyou trim logs that are currently open, remember to restart or instruct your\nsyslog or other daemon to re-open the log file.\n\nIf space cannot be freed, the monitor’s data directory might need to be moved\nto another storage device or file system (this relocation process must be\ncarried out while the monitor daemon is not running).",
+    "resolution_commands": [
+      "df -h /var/lib/ceph/mon",
+      "du -sh /var/log/ceph/",
+      "journalctl --vacuum-size=200M"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/rados/operations/health-checks/#mon-disk-low",
+    "ceph_version": "17.2.8"
+  },
+  "MON_DISK_CRIT": {
+    "code": "MON_DISK_CRIT",
+    "heading": "MON_DISK_CRIT",
+    "severity": "HEALTH_WARN",
+    "summary": "One or more monitors are critically low on storage space. This health check is\nraised if the percentage of available space on the file system used by the\nmonitor database (normally /var/lib/ceph/mon) drops below the percentage\nvalue mon_data_avail_cr",
+    "description": "One or more monitors are critically low on storage space. This health check is\nraised if the percentage of available space on the file system used by the\nmonitor database (normally /var/lib/ceph/mon) drops below the percentage\nvalue mon_data_avail_crit (default: 5%). See MON_DISK_LOW, above.",
+    "resolution_commands": [
+      "df -h /var/lib/ceph/mon",
+      "du -sh /var/log/ceph/",
+      "journalctl --vacuum-size=200M"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/rados/operations/health-checks/#mon-disk-crit",
+    "ceph_version": "17.2.8"
+  },
+  "MON_DISK_BIG": {
+    "code": "MON_DISK_BIG",
+    "heading": "MON_DISK_BIG",
+    "severity": "HEALTH_WARN",
+    "summary": "The database size for one or more monitors is very large. This health check is\nraised if the size of the monitor database is larger than\nmon_data_size_warn (default: 15 GiB).",
+    "description": "The database size for one or more monitors is very large. This health check is\nraised if the size of the monitor database is larger than\nmon_data_size_warn (default: 15 GiB).\n\nA large database is unusual, but does not necessarily indicate a problem.\nMonitor databases might grow in size when there are placement groups that have\nnot reached an active+clean state in a long time, or when extensive cluster\nrecovery, expansion, or topology changes have recently occurred.\n\nThis alert may also indicate that the monitor’s database is not properly\ncompacting, an issue that has been observed with some older versions of\nRocksDB. Forcing compaction with ceph daemon mon.<id> compact may suffice\nto shrink the database’s storage usage.\n\nThis alert may also indicate that the monitor has a bug that prevents it from\npruning the cluster metadata that it stores. If the problem persists, please\nreport a bug.\n\nTo adjust the warning threshold, run the following command:\n\nceph config set global mon_data_size_warn <size>",
+    "resolution_commands": [
+      "ceph config set global mon_data_size_warn <size>"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/rados/operations/health-checks/#mon-disk-big",
+    "ceph_version": "17.2.8"
+  },
+  "AUTH_INSECURE_GLOBAL_ID_RECLAIM": {
+    "code": "AUTH_INSECURE_GLOBAL_ID_RECLAIM",
+    "heading": "AUTH_INSECURE_GLOBAL_ID_RECLAIM",
+    "severity": "HEALTH_WARN",
+    "summary": "One or more clients or daemons that are connected to the cluster are not\nsecurely reclaiming their global_id (a unique number that identifies each\nentity in the cluster) when reconnecting to a monitor. The client is being\npermitted to connect anyway ",
+    "description": "One or more clients or daemons that are connected to the cluster are not\nsecurely reclaiming their global_id (a unique number that identifies each\nentity in the cluster) when reconnecting to a monitor. The client is being\npermitted to connect anyway because the\nauth_allow_insecure_global_id_reclaim option is set to true (which may\nbe necessary until all Ceph clients have been upgraded) and because the\nauth_expose_insecure_global_id_reclaim option is set to true (which\nallows monitors to detect clients with “insecure reclaim” sooner by forcing\nthose clients to reconnect immediately after their initial authentication).\n\nTo identify which client(s) are using unpatched Ceph client code, run the\nfollowing command:\n\nceph health detail\n\nIf you collect a dump of the clients that are connected to an individual\nmonitor and examine the global_id_status field in the output of the dump,\nyou can see the global_id reclaim behavior of those clients. Here\nreclaim_insecure means that a client is unpatched and is contributing to\nthis health check.  To effect a client dump, run the following command:\n\nceph tell mon.\\* sessions\n\nWe strongly recommend that all clients in the system be upgraded to a newer\nversion of Ceph that correctly reclaims global_id values. After all clients\nhave been updated, run the following command to stop allowing insecure\nreconnections:\n\nceph config set mon auth_allow_insecure_global_id_reclaim false\n\nIf it is impractical to upgrade all clients immediately, you can temporarily\nsilence this alert by running the following command:\n\nceph health mute AUTH_INSECURE_GLOBAL_ID_RECLAIM 1w   # 1 week\n\nAlthough we do NOT recommend doing so, you can also disable this alert\nindefinitely by running the following command:\n\nceph config set mon mon_warn_on_insecure_global_id_reclaim false",
+    "resolution_commands": [
+      "ceph health detail",
+      "ceph tell mon.\\* sessions",
+      "ceph health mute AUTH_INSECURE_GLOBAL_ID_RECLAIM 1w   # 1 week",
+      "ceph config set mon mon_warn_on_insecure_global_id_reclaim false"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/rados/operations/health-checks/#auth-insecure-global-id-reclaim",
+    "ceph_version": "17.2.8"
+  },
+  "AUTH_INSECURE_GLOBAL_ID_RECLAIM_ALLOWED": {
+    "code": "AUTH_INSECURE_GLOBAL_ID_RECLAIM_ALLOWED",
+    "heading": "AUTH_INSECURE_GLOBAL_ID_RECLAIM_ALLOWED",
+    "severity": "HEALTH_WARN",
+    "summary": "Ceph is currently configured to allow clients that reconnect to monitors using\nan insecure process to reclaim their previous global_id. Such reclaiming is\nallowed because, by default, auth_allow_insecure_global_id_reclaim is set\nto true. It might be ",
+    "description": "Ceph is currently configured to allow clients that reconnect to monitors using\nan insecure process to reclaim their previous global_id. Such reclaiming is\nallowed because, by default, auth_allow_insecure_global_id_reclaim is set\nto true. It might be necessary to leave this setting enabled while existing\nCeph clients are upgraded to newer versions of Ceph that correctly and securely\nreclaim their global_id.\n\nIf the AUTH_INSECURE_GLOBAL_ID_RECLAIM health check has not also been\nraised and if the auth_expose_insecure_global_id_reclaim setting has not\nbeen disabled (it is enabled by default), then there are currently no clients\nconnected that need to be upgraded. In that case, it is safe to disable\ninsecure global_id reclaim by running the following command:\n\nceph config set mon auth_allow_insecure_global_id_reclaim false\n\nOn the other hand, if there are still clients that need to be upgraded, then\nthis alert can be temporarily silenced by running the following command:\n\nceph health mute AUTH_INSECURE_GLOBAL_ID_RECLAIM_ALLOWED 1w   # 1 week\n\nAlthough we do NOT recommend doing so, you can also disable this alert\nindefinitely by running the following command:\n\nceph config set mon mon_warn_on_insecure_global_id_reclaim_allowed false",
+    "resolution_commands": [
+      "ceph config set mon auth_allow_insecure_global_id_reclaim false",
+      "ceph health mute AUTH_INSECURE_GLOBAL_ID_RECLAIM_ALLOWED 1w   # 1 week",
+      "ceph config set mon mon_warn_on_insecure_global_id_reclaim_allowed false"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/rados/operations/health-checks/#auth-insecure-global-id-reclaim-allowed",
+    "ceph_version": "17.2.8"
+  },
+  "MGR_DOWN": {
+    "code": "MGR_DOWN",
+    "heading": "MGR_DOWN",
+    "severity": "HEALTH_WARN",
+    "summary": "All Ceph Manager daemons are currently down. The cluster should normally have\nat least one running manager (ceph-mgr) daemon. If no manager daemon is\nrunning, the cluster’s ability to monitor itself will be compromised, parts of\nthe management API wi",
+    "description": "All Ceph Manager daemons are currently down. The cluster should normally have\nat least one running manager (ceph-mgr) daemon. If no manager daemon is\nrunning, the cluster’s ability to monitor itself will be compromised, parts of\nthe management API will become unavailable (for example, the dashboard will not\nwork, and most CLI commands that report metrics or runtime state will block).\nHowever, the cluster will still be able to perform client I/O operations and\nrecover from failures.\n\nThe down manager daemon(s) should be restarted as soon as possible to ensure\nthat the cluster can be monitored (for example, so that ceph -s information\nis available and up to date, and so that metrics can be scraped by Prometheus).",
+    "resolution_commands": [
+      "ceph mgr stat",
+      "ceph orch restart mgr",
+      "systemctl restart ceph-mgr@$(hostname)"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/rados/operations/health-checks/#mgr-down",
+    "ceph_version": "17.2.8"
+  },
+  "MGR_MODULE_DEPENDENCY": {
+    "code": "MGR_MODULE_DEPENDENCY",
+    "heading": "MGR_MODULE_DEPENDENCY",
+    "severity": "HEALTH_WARN",
+    "summary": "An enabled manager module is failing its dependency check. This health check\ntypically comes with an explanatory message from the module about the problem.",
+    "description": "An enabled manager module is failing its dependency check. This health check\ntypically comes with an explanatory message from the module about the problem.\n\nFor example, a module might report that a required package is not installed: in\nthis case, you should install the required package and restart your manager\ndaemons.\n\nThis health check is applied only to enabled modules. If a module is not\nenabled, you can see whether it is reporting dependency issues in the output of\nceph module ls.",
+    "resolution_commands": [
+      "ceph mgr module ls",
+      "ceph mgr module disable <module>",
+      "ceph mgr module enable <module>"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/rados/operations/health-checks/#mgr-module-dependency",
+    "ceph_version": "17.2.8"
+  },
+  "MGR_MODULE_ERROR": {
+    "code": "MGR_MODULE_ERROR",
+    "heading": "MGR_MODULE_ERROR",
+    "severity": "HEALTH_WARN",
+    "summary": "A manager module has experienced an unexpected error. Typically, this means\nthat an unhandled exception was raised from the module’s serve function. The\nhuman-readable description of the error might be obscurely worded if the\nexception did not provid",
+    "description": "A manager module has experienced an unexpected error. Typically, this means\nthat an unhandled exception was raised from the module’s serve function. The\nhuman-readable description of the error might be obscurely worded if the\nexception did not provide a useful description of itself.\n\nThis health check might indicate a bug: please open a Ceph bug report if you\nthink you have encountered a bug.\n\nHowever, if you believe the error is transient, you may restart your manager\ndaemon(s) or use ceph mgr fail on the active daemon in order to force\nfailover to another daemon.",
+    "resolution_commands": [
+      "ceph mgr module ls",
+      "ceph mgr module disable <module>",
+      "ceph crash ls-new",
+      "ceph crash archive-all"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/rados/operations/health-checks/#mgr-module-error",
+    "ceph_version": "17.2.8"
+  },
+  "OSD_DOWN": {
+    "code": "OSD_DOWN",
+    "heading": "OSD_DOWN",
+    "severity": "HEALTH_WARN",
+    "summary": "One or more OSDs are marked down. The ceph-osd daemon(s) or their host(s)\nmay have crashed or been stopped, or peer OSDs might be unable to reach the OSD\nover the public or private network.  Common causes include a stopped or crashed\ndaemon, a “down”",
+    "description": "One or more OSDs are marked down. The ceph-osd daemon(s) or their host(s)\nmay have crashed or been stopped, or peer OSDs might be unable to reach the OSD\nover the public or private network.  Common causes include a stopped or crashed\ndaemon, a “down” host, or a network failure.\n\nVerify that the host is healthy, the daemon is started, and the network is\nfunctioning. If the daemon has crashed, the daemon log file\n(/var/log/ceph/ceph-osd.*) may contain troubleshooting information.",
+    "resolution_commands": [
+      "ceph osd tree",
+      "ceph orch restart osd",
+      "systemctl restart ceph-osd@<id>",
+      "ceph osd in <id>"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/rados/operations/health-checks/#osd-down",
+    "ceph_version": "17.2.8"
+  },
+  "OSD_": {
+    "code": "OSD_",
+    "heading": "OSD_<crush type>_DOWN",
+    "severity": "HEALTH_WARN",
+    "summary": "(for example, OSD_HOST_DOWN, OSD_ROOT_DOWN)",
+    "description": "(for example, OSD_HOST_DOWN, OSD_ROOT_DOWN)\n\nAll of the OSDs within a particular CRUSH subtree are marked “down” (for\nexample, all OSDs on a host).",
+    "resolution_commands": [
+      "ceph osd stat",
+      "ceph osd tree",
+      "ceph health detail"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/rados/operations/health-checks/#osd-crush-type-down",
+    "ceph_version": "17.2.8"
+  },
+  "OSD_ORPHAN": {
+    "code": "OSD_ORPHAN",
+    "heading": "OSD_ORPHAN",
+    "severity": "HEALTH_WARN",
+    "summary": "An OSD is referenced in the CRUSH map hierarchy, but does not exist.",
+    "description": "An OSD is referenced in the CRUSH map hierarchy, but does not exist.\n\nTo remove the OSD from the CRUSH map hierarchy, run the following command:\n\nceph osd crush rm osd.<id>",
+    "resolution_commands": [
+      "ceph osd crush rm osd.<id>"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/rados/operations/health-checks/#osd-orphan",
+    "ceph_version": "17.2.8"
+  },
+  "OSD_OUT_OF_ORDER_FULL": {
+    "code": "OSD_OUT_OF_ORDER_FULL",
+    "heading": "OSD_OUT_OF_ORDER_FULL",
+    "severity": "HEALTH_WARN",
+    "summary": "The utilization thresholds for nearfull, backfillfull, full, and/or\nfailsafe_full are not ascending. In particular, the following pattern is\nexpected: nearfull < backfillfull, backfillfull < full, and full <\nfailsafe_full.  This can result in unexpec",
+    "description": "The utilization thresholds for nearfull, backfillfull, full, and/or\nfailsafe_full are not ascending. In particular, the following pattern is\nexpected: nearfull < backfillfull, backfillfull < full, and full <\nfailsafe_full.  This can result in unexpected cluster behavior.\n\nTo adjust these utilization thresholds, run the following commands:\n\nceph osd set-nearfull-ratio <ratio>\nceph osd set-backfillfull-ratio <ratio>\nceph osd set-full-ratio <ratio>",
+    "resolution_commands": [
+      "ceph osd set-nearfull-ratio <ratio>\nceph osd set-backfillfull-ratio <ratio>",
+      "ceph osd set-full-ratio <ratio>"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/rados/operations/health-checks/#osd-out-of-order-full",
+    "ceph_version": "17.2.8"
+  },
+  "OSD_FULL": {
+    "code": "OSD_FULL",
+    "heading": "OSD_FULL",
+    "severity": "HEALTH_WARN",
+    "summary": "One or more OSDs have exceeded the full threshold and are preventing the\ncluster from servicing writes.",
+    "description": "One or more OSDs have exceeded the full threshold and are preventing the\ncluster from servicing writes.\n\nTo check utilization by pool, run the following command:\n\nceph df\n\nTo see the currently defined full ratio, run the following command:\n\nceph osd dump | grep full_ratio\n\nA short-term workaround to restore write availability is to raise the full\nthreshold by a small amount. To do so, run the following command:\n\nceph osd set-full-ratio <ratio>\n\nAdditional OSDs should be deployed within appropriate CRUSH failure domains\nin order to increase capacity, and / or existing data should be deleted\nin order to free up space in the cluster.  One subtle situation is that the\nrados bench tool may have been used to test one or more pools’ performance,\nand the resulting RADOS objects were not subsequently cleaned up.  You may\ncheck for this by invoking rados ls against each pool and looking for\nobjects with names beginning with bench or other job names.  These may\nthen be manually but very, very carefully deleted in order to reclaim capacity.",
+    "resolution_commands": [
+      "ceph osd dump | grep full_ratio",
+      "ceph osd set-full-ratio <ratio>"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/rados/operations/health-checks/#osd-full",
+    "ceph_version": "17.2.8"
+  },
+  "OSD_BACKFILLFULL": {
+    "code": "OSD_BACKFILLFULL",
+    "heading": "OSD_BACKFILLFULL",
+    "severity": "HEALTH_WARN",
+    "summary": "One or more OSDs have exceeded the backfillfull threshold or would exceed\nit if the currently-mapped backfills were to finish, which will prevent data\nfrom rebalancing to this OSD. This alert is an early warning that\nrebalancing might be unable to co",
+    "description": "One or more OSDs have exceeded the backfillfull threshold or would exceed\nit if the currently-mapped backfills were to finish, which will prevent data\nfrom rebalancing to this OSD. This alert is an early warning that\nrebalancing might be unable to complete and that the cluster is approaching\nfull.\n\nTo check utilization by pool, run the following command:\n\nceph df",
+    "resolution_commands": [
+      "ceph df\nOne or more OSDs have exceeded the backfillfull threshold or would exceed"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/rados/operations/health-checks/#osd-backfillfull",
+    "ceph_version": "17.2.8"
+  },
+  "OSD_NEARFULL": {
+    "code": "OSD_NEARFULL",
+    "heading": "OSD_NEARFULL",
+    "severity": "HEALTH_WARN",
+    "summary": "One or more OSDs have exceeded the nearfull threshold. This alert is an early\nwarning that the cluster is approaching full.",
+    "description": "One or more OSDs have exceeded the nearfull threshold. This alert is an early\nwarning that the cluster is approaching full.\n\nTo check utilization by pool, run the following command:\n\nceph df",
+    "resolution_commands": [
+      "ceph df",
+      "ceph osd set-nearfull-ratio <ratio>",
+      "ceph osd df",
+      "ceph osd reweight-by-utilization"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/rados/operations/health-checks/#osd-nearfull",
+    "ceph_version": "17.2.8"
+  },
+  "OSDMAP_FLAGS": {
+    "code": "OSDMAP_FLAGS",
+    "heading": "OSDMAP_FLAGS",
+    "severity": "HEALTH_WARN",
+    "summary": "One or more cluster flags of interest have been set. These flags include:",
+    "description": "One or more cluster flags of interest have been set. These flags include:\n\nfull - the cluster is flagged as full and cannot serve writes\npauserd, pausewr - there are paused reads or writes\nnoup - OSDs are not allowed to start\nnodown - OSD failure reports are being ignored, and that means that the\nmonitors will not mark OSDs “down”\nnoin - OSDs that were previously marked out are not being marked\nback in when they start\nnoout - “down” OSDs are not automatically being marked out after the\nconfigured interval\nnobackfill, norecover, norebalance - recovery or data\nrebalancing is suspended\nnoscrub, nodeep_scrub - scrubbing is disabled\nnotieragent - cache-tiering activity is suspended\n\nfull - the cluster is flagged as full and cannot serve writes\n\npauserd, pausewr - there are paused reads or writes\n\nnoup - OSDs are not allowed to start\n\nnodown - OSD failure reports are being ignored, and that means that the\nmonitors will not mark OSDs “down”\n\nnoin - OSDs that were previously marked out are not being marked\nback in when they start\n\nnoout - “down” OSDs are not automatically being marked out after the\nconfigured interval\n\nnobackfill, norecover, norebalance - recovery or data\nrebalancing is suspended\n\nnoscrub, nodeep_scrub - scrubbing is disabled\n\nnotieragent - cache-tiering activity is suspended\n\nWith the exception of full, these flags can be set or cleared by running the\nfollowing commands:\n\nceph osd set <flag>\nceph osd unset <flag>",
+    "resolution_commands": [
+      "ceph osd set <flag>\nceph osd unset <flag>"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/rados/operations/health-checks/#osdmap-flags",
+    "ceph_version": "17.2.8"
+  },
+  "OSD_FLAGS": {
+    "code": "OSD_FLAGS",
+    "heading": "OSD_FLAGS",
+    "severity": "HEALTH_WARN",
+    "summary": "One or more OSDs or CRUSH {nodes,device classes} have a flag of interest set.\nThese flags include:",
+    "description": "One or more OSDs or CRUSH {nodes,device classes} have a flag of interest set.\nThese flags include:\n\nnoup: these OSDs are not allowed to start\nnodown: failure reports for these OSDs will be ignored\nnoin: if these OSDs were previously marked out automatically\nafter a failure, they will not be marked in when they start\nnoout: if these OSDs are “down” they will not automatically be marked\nout after the configured interval\n\nnoup: these OSDs are not allowed to start\n\nnodown: failure reports for these OSDs will be ignored\n\nnoin: if these OSDs were previously marked out automatically\nafter a failure, they will not be marked in when they start\n\nnoout: if these OSDs are “down” they will not automatically be marked\nout after the configured interval\n\nTo set and clear these flags in batch, run the following commands:\n\nceph osd set-group <flags> <who>\nceph osd unset-group <flags> <who>\n\nFor example:\n\nceph osd set-group noup,noout osd.0 osd.1\nceph osd unset-group noup,noout osd.0 osd.1\nceph osd set-group noup,noout host-foo\nceph osd unset-group noup,noout host-foo\nceph osd set-group noup,noout class-hdd\nceph osd unset-group noup,noout class-hdd",
+    "resolution_commands": [
+      "ceph osd set-group <flags> <who>\nceph osd unset-group <flags> <who>"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/rados/operations/health-checks/#osd-flags",
+    "ceph_version": "17.2.8"
+  },
+  "OLD_CRUSH_TUNABLES": {
+    "code": "OLD_CRUSH_TUNABLES",
+    "heading": "OLD_CRUSH_TUNABLES",
+    "severity": "HEALTH_WARN",
+    "summary": "The CRUSH map is using very old settings and should be updated. The oldest set\nof tunables that can be used (that is, the oldest client version that can\nconnect to the cluster) without raising this health check is determined by the\nmon_crush_min_requ",
+    "description": "The CRUSH map is using very old settings and should be updated. The oldest set\nof tunables that can be used (that is, the oldest client version that can\nconnect to the cluster) without raising this health check is determined by the\nmon_crush_min_required_version config option.  For more information, see\nTunables.",
+    "resolution_commands": [
+      "ceph osd crush tunables optimal",
+      "ceph config set global mon_warn_on_legacy_crush_tunables false"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/rados/operations/health-checks/#old-crush-tunables",
+    "ceph_version": "17.2.8"
+  },
+  "OLD_CRUSH_STRAW_CALC_VERSION": {
+    "code": "OLD_CRUSH_STRAW_CALC_VERSION",
+    "heading": "OLD_CRUSH_STRAW_CALC_VERSION",
+    "severity": "HEALTH_WARN",
+    "summary": "The CRUSH map is using an older, non-optimal method of calculating intermediate\nweight values for straw buckets.",
+    "description": "The CRUSH map is using an older, non-optimal method of calculating intermediate\nweight values for straw buckets.\n\nThe CRUSH map should be updated to use the newer method (that is:\nstraw_calc_version=1). For more information, see Tunables.",
+    "resolution_commands": [
+      "ceph osd crush set-all-straw-buckets-to-straw2",
+      "ceph config set global mon_warn_on_crush_straw_calc_version_zero false"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/rados/operations/health-checks/#old-crush-straw-calc-version",
+    "ceph_version": "17.2.8"
+  },
+  "CACHE_POOL_NO_HIT_SET": {
+    "code": "CACHE_POOL_NO_HIT_SET",
+    "heading": "CACHE_POOL_NO_HIT_SET",
+    "severity": "HEALTH_WARN",
+    "summary": "One or more cache pools are not configured with a hit set to track\nutilization. This issue prevents the tiering agent from identifying cold\nobjects that are to be flushed and evicted from the cache.",
+    "description": "One or more cache pools are not configured with a hit set to track\nutilization. This issue prevents the tiering agent from identifying cold\nobjects that are to be flushed and evicted from the cache.\n\nTo configure hit sets on the cache pool, run the following commands:\n\nceph osd pool set <poolname> hit_set_type <type>\nceph osd pool set <poolname> hit_set_period <period-in-seconds>\nceph osd pool set <poolname> hit_set_count <number-of-hitsets>\nceph osd pool set <poolname> hit_set_fpp <target-false-positive-rate>",
+    "resolution_commands": [
+      "ceph osd pool set <poolname> hit_set_type <type>",
+      "ceph osd pool set <poolname> hit_set_period <period-in-seconds>",
+      "ceph osd pool set <poolname> hit_set_count <number-of-hitsets>",
+      "ceph osd pool set <poolname> hit_set_fpp <target-false-positive-rate>"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/rados/operations/health-checks/#cache-pool-no-hit-set",
+    "ceph_version": "17.2.8"
+  },
+  "OSD_NO_SORTBITWISE": {
+    "code": "OSD_NO_SORTBITWISE",
+    "heading": "OSD_NO_SORTBITWISE",
+    "severity": "HEALTH_WARN",
+    "summary": "No pre-Luminous v12.y.z OSDs are running, but the sortbitwise flag has not\nbeen set.",
+    "description": "No pre-Luminous v12.y.z OSDs are running, but the sortbitwise flag has not\nbeen set.\n\nThe sortbitwise flag must be set in order for OSDs running Luminous v12.y.z\nor newer to start. To safely set the flag, run the following command:\n\nceph osd set sortbitwise",
+    "resolution_commands": [
+      "ceph osd set sortbitwise"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/rados/operations/health-checks/#osd-no-sortbitwise",
+    "ceph_version": "17.2.8"
+  },
+  "OSD_FILESTORE": {
+    "code": "OSD_FILESTORE",
+    "heading": "OSD_FILESTORE",
+    "severity": "HEALTH_WARN",
+    "summary": "Warn if OSDs are running the old Filestore back end. The Filestore OSD back end\nis deprecated; the BlueStore back end has been the default object store since\nthe Ceph Luminous release.",
+    "description": "Warn if OSDs are running the old Filestore back end. The Filestore OSD back end\nis deprecated; the BlueStore back end has been the default object store since\nthe Ceph Luminous release.\n\nThe ‘mclock_scheduler’ is not supported for Filestore OSDs. For this reason,\nthe default ‘osd_op_queue’ is set to ‘wpq’ for Filestore OSDs and is enforced\neven if the user attempts to change it.\n\nceph report | jq -c '.\"osd_metadata\" | .[] | select(.osd_objectstore | contains(\"filestore\")) | {id, osd_objectstore}'\n\nIn order to upgrade to Reef or a later release, you must first migrate any\nFilestore OSDs to BlueStore.\n\nIf you are upgrading a pre-Reef release to Reef or later, but it is not\nfeasible to migrate Filestore OSDs to BlueStore immediately, you can\ntemporarily silence this alert by running the following command:\n\nceph health mute OSD_FILESTORE\n\nSince migration of Filestore OSDs to BlueStore can take a considerable amount\nof time to complete, we recommend that you begin the process well in advance\nof any update to Reef or to later releases.",
+    "resolution_commands": [
+      "ceph health mute OSD_FILESTORE"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/rados/operations/health-checks/#osd-filestore",
+    "ceph_version": "17.2.8"
+  },
+  "OSD_UNREACHABLE": {
+    "code": "OSD_UNREACHABLE",
+    "heading": "OSD_UNREACHABLE",
+    "severity": "HEALTH_WARN",
+    "summary": "The registered v1/v2 public address or addresses of one or more OSD(s) is or\nare out of the defined public_network subnet, which prevents these\nunreachable OSDs from communicating with ceph clients properly.",
+    "description": "The registered v1/v2 public address or addresses of one or more OSD(s) is or\nare out of the defined public_network subnet, which prevents these\nunreachable OSDs from communicating with ceph clients properly.\n\nEven though these unreachable OSDs are in up state, rados clients\nwill hang till TCP timeout before erroring out due to this inconsistency.",
+    "resolution_commands": [
+      "ceph osd tree",
+      "ping <osd-host>",
+      "ceph orch host ls",
+      "ceph osd stat"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/rados/operations/health-checks/#osd-unreachable",
+    "ceph_version": "17.2.8"
+  },
+  "POOL_FULL": {
+    "code": "POOL_FULL",
+    "heading": "POOL_FULL",
+    "severity": "HEALTH_WARN",
+    "summary": "One or more pools have reached (or are very close to reaching) their quota. The\nthreshold to raise this health check is determined by the\nmon_pool_quota_crit_threshold configuration option.",
+    "description": "One or more pools have reached (or are very close to reaching) their quota. The\nthreshold to raise this health check is determined by the\nmon_pool_quota_crit_threshold configuration option.\n\nPool quotas can be adjusted up or down (or removed) by running the following\ncommands:\n\nceph osd pool set-quota <pool> max_bytes <bytes>\nceph osd pool set-quota <pool> max_objects <objects>\n\nTo disable a quota, set the quota value to 0.",
+    "resolution_commands": [
+      "ceph osd pool set-quota <pool> max_bytes <bytes>\nceph osd pool set-quota <pool> max_objects <objects>"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/rados/operations/health-checks/#id3",
+    "ceph_version": "17.2.8"
+  },
+  "BLUEFS_SPILLOVER": {
+    "code": "BLUEFS_SPILLOVER",
+    "heading": "BLUEFS_SPILLOVER",
+    "severity": "HEALTH_WARN",
+    "summary": "One or more OSDs that use the BlueStore back end have been allocated db\npartitions (that is, storage space for metadata, normally on a faster device),\nbut because that space has been filled, metadata has “spilled over” onto the\nslow device. This is n",
+    "description": "One or more OSDs that use the BlueStore back end have been allocated db\npartitions (that is, storage space for metadata, normally on a faster device),\nbut because that space has been filled, metadata has “spilled over” onto the\nslow device. This is not necessarily an error condition or even unexpected\nbehavior, but may result in degraded performance. If the administrator had\nexpected that all metadata would fit on the faster device, this alert indicates\nthat not enough space was provided.\n\nTo disable this alert on all OSDs, run the following command:\n\nceph config set osd bluestore_warn_on_bluefs_spillover false\n\nAlternatively, to disable the alert on a specific OSD, run the following\ncommand:\n\nceph config set osd.123 bluestore_warn_on_bluefs_spillover false\n\nTo secure more metadata space, you can destroy and reprovision the OSD in\nquestion. This process involves data migration and recovery.\n\nIt might also be possible to expand the LVM logical volume that backs the db\nstorage. If the underlying LV has been expanded, you must stop the OSD daemon\nand inform BlueFS of the device-size change by running the following command:\n\nceph-bluestore-tool bluefs-bdev-expand --path /var/lib/ceph/osd/ceph-$ID",
+    "resolution_commands": [
+      "ceph config set osd bluestore_warn_on_bluefs_spillover false",
+      "ceph config set osd.123 bluestore_warn_on_bluefs_spillover false"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/rados/operations/health-checks/#bluefs-spillover",
+    "ceph_version": "17.2.8"
+  },
+  "BLUEFS_AVAILABLE_SPACE": {
+    "code": "BLUEFS_AVAILABLE_SPACE",
+    "heading": "BLUEFS_AVAILABLE_SPACE",
+    "severity": "HEALTH_WARN",
+    "summary": "To see how much space is free for BlueFS, run the following command:",
+    "description": "To see how much space is free for BlueFS, run the following command:\n\nceph daemon osd.123 bluestore bluefs available\n\nThis will output up to three values: BDEV_DB free, BDEV_SLOW free, and\navailable_from_bluestore. BDEV_DB and BDEV_SLOW report the amount\nof space that has been acquired by BlueFS and is now considered free. The value\navailable_from_bluestore indicates the ability of BlueStore to relinquish\nmore space to BlueFS.  It is normal for this value to differ from the amount of\nBlueStore free space, because the BlueFS allocation unit is typically larger\nthan the BlueStore allocation unit.  This means that only part of the BlueStore\nfree space will be available for BlueFS.",
+    "resolution_commands": [
+      "ceph daemon osd.123 bluestore bluefs available"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/rados/operations/health-checks/#bluefs-available-space",
+    "ceph_version": "17.2.8"
+  },
+  "BLUEFS_LOW_SPACE": {
+    "code": "BLUEFS_LOW_SPACE",
+    "heading": "BLUEFS_LOW_SPACE",
+    "severity": "HEALTH_WARN",
+    "summary": "If BlueFS is running low on available free space and there is not much free\nspace available from BlueStore (in other words, available_from_bluestore has\na low value), consider reducing the BlueFS allocation unit size. To simulate\navailable space when",
+    "description": "If BlueFS is running low on available free space and there is not much free\nspace available from BlueStore (in other words, available_from_bluestore has\na low value), consider reducing the BlueFS allocation unit size. To simulate\navailable space when the allocation unit is different, run the following\ncommand:\n\nceph daemon osd.123 bluestore bluefs available <alloc-unit-size>",
+    "resolution_commands": [
+      "ceph daemon osd.123 bluestore bluefs available <alloc-unit-size>"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/rados/operations/health-checks/#bluefs-low-space",
+    "ceph_version": "17.2.8"
+  },
+  "BLUESTORE_FRAGMENTATION": {
+    "code": "BLUESTORE_FRAGMENTATION",
+    "heading": "BLUESTORE_FRAGMENTATION",
+    "severity": "HEALTH_WARN",
+    "summary": "BLUESTORE_FRAGMENTATION indicates that the free space that underlies\nBlueStore has become fragmented. This is normal and unavoidable, but excessive\nfragmentation causes slowdown. To inspect BlueStore fragmentation, run the\nfollowing command:",
+    "description": "BLUESTORE_FRAGMENTATION indicates that the free space that underlies\nBlueStore has become fragmented. This is normal and unavoidable, but excessive\nfragmentation causes slowdown. To inspect BlueStore fragmentation, run the\nfollowing command:\n\nceph daemon osd.123 bluestore allocator score block\n\nThe fragmentation score is given in a [0-1] range.\n[0.0 .. 0.4] tiny fragmentation\n[0.4 .. 0.7] small, acceptable fragmentation\n[0.7 .. 0.9] considerable, but safe fragmentation\n[0.9 .. 1.0] severe fragmentation, might impact BlueFS’s ability to get space from BlueStore\n\nTo see a detailed report of free fragments, run the following command:\n\nceph daemon osd.123 bluestore allocator dump block\n\nFor OSD processes that are not currently running, fragmentation can be\ninspected with ceph-bluestore-tool. To see the fragmentation score, run the\nfollowing command:\n\nceph-bluestore-tool --path /var/lib/ceph/osd/ceph-123 --allocator block free-score\n\nTo dump detailed free chunks, run the following command:\n\nceph-bluestore-tool --path /var/lib/ceph/osd/ceph-123 --allocator block free-dump",
+    "resolution_commands": [
+      "ceph daemon osd.123 bluestore allocator score block",
+      "ceph daemon osd.123 bluestore allocator dump block"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/rados/operations/health-checks/#bluestore-fragmentation",
+    "ceph_version": "17.2.8"
+  },
+  "BLUESTORE_LEGACY_STATFS": {
+    "code": "BLUESTORE_LEGACY_STATFS",
+    "heading": "BLUESTORE_LEGACY_STATFS",
+    "severity": "HEALTH_WARN",
+    "summary": "One or more OSDs have BlueStore volumes that were created prior to the\nNautilus release. (In Nautilus, BlueStore tracks its internal usage\nstatistics on a granular, per-pool basis.)",
+    "description": "One or more OSDs have BlueStore volumes that were created prior to the\nNautilus release. (In Nautilus, BlueStore tracks its internal usage\nstatistics on a granular, per-pool basis.)\n\nIf all OSDs are older than Nautilus, this means that the per-pool metrics are\nsimply unavailable. But if there is a mixture of pre-Nautilus and post-Nautilus\nOSDs, the cluster usage statistics reported by ceph df will be inaccurate.\n\nThe old OSDs can be updated to use the new usage-tracking scheme by stopping\neach OSD, running a repair operation, and then restarting the OSD. For example,\nto update osd.123, run the following commands:\n\nsystemctl stop ceph-osd@123\nceph-bluestore-tool repair --path /var/lib/ceph/osd/ceph-123\nsystemctl start ceph-osd@123\n\nTo disable this alert, run the following command:\n\nceph config set global bluestore_warn_on_legacy_statfs false",
+    "resolution_commands": [
+      "ceph config set global bluestore_warn_on_legacy_statfs false"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/rados/operations/health-checks/#bluestore-legacy-statfs",
+    "ceph_version": "17.2.8"
+  },
+  "BLUESTORE_NO_PER_POOL_OMAP": {
+    "code": "BLUESTORE_NO_PER_POOL_OMAP",
+    "heading": "BLUESTORE_NO_PER_POOL_OMAP",
+    "severity": "HEALTH_WARN",
+    "summary": "One or more OSDs have volumes that were created prior to the Octopus release.\n(In Octopus and later releases, BlueStore tracks omap space utilization by\npool.)",
+    "description": "One or more OSDs have volumes that were created prior to the Octopus release.\n(In Octopus and later releases, BlueStore tracks omap space utilization by\npool.)\n\nIf there are any BlueStore OSDs that do not have the new tracking enabled, the\ncluster will report an approximate value for per-pool omap usage based on the\nmost recent deep scrub.\n\nThe OSDs can be updated to track by pool by stopping each OSD, running a repair\noperation, and then restarting the OSD. For example, to update osd.123, run\nthe following commands:\n\nsystemctl stop ceph-osd@123\nceph-bluestore-tool repair --path /var/lib/ceph/osd/ceph-123\nsystemctl start ceph-osd@123\n\nTo disable this alert, run the following command:\n\nceph config set global bluestore_warn_on_no_per_pool_omap false",
+    "resolution_commands": [
+      "ceph config set global bluestore_warn_on_no_per_pool_omap false"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/rados/operations/health-checks/#bluestore-no-per-pool-omap",
+    "ceph_version": "17.2.8"
+  },
+  "BLUESTORE_NO_PER_PG_OMAP": {
+    "code": "BLUESTORE_NO_PER_PG_OMAP",
+    "heading": "BLUESTORE_NO_PER_PG_OMAP",
+    "severity": "HEALTH_WARN",
+    "summary": "One or more OSDs have volumes that were created prior to Pacific.  (In Pacific\nand later releases Bluestore tracks omap space utilitzation by Placement Group\n(PG).)",
+    "description": "One or more OSDs have volumes that were created prior to Pacific.  (In Pacific\nand later releases Bluestore tracks omap space utilitzation by Placement Group\n(PG).)\n\nPer-PG omap allows faster PG removal when PGs migrate.\n\nThe older OSDs can be updated to track by PG by stopping each OSD, running a\nrepair operation, and then restarting the OSD. For example, to update\nosd.123, run the following commands:\n\nsystemctl stop ceph-osd@123\nceph-bluestore-tool repair --path /var/lib/ceph/osd/ceph-123\nsystemctl start ceph-osd@123\n\nTo disable this alert, run the following command:\n\nceph config set global bluestore_warn_on_no_per_pg_omap false",
+    "resolution_commands": [
+      "ceph config set global bluestore_warn_on_no_per_pg_omap false"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/rados/operations/health-checks/#bluestore-no-per-pg-omap",
+    "ceph_version": "17.2.8"
+  },
+  "BLUESTORE_DISK_SIZE_MISMATCH": {
+    "code": "BLUESTORE_DISK_SIZE_MISMATCH",
+    "heading": "BLUESTORE_DISK_SIZE_MISMATCH",
+    "severity": "HEALTH_WARN",
+    "summary": "One or more BlueStore OSDs have an internal inconsistency between the size of\nthe physical device and the metadata that tracks its size. This inconsistency\ncan lead to the OSD(s) crashing in the future.",
+    "description": "One or more BlueStore OSDs have an internal inconsistency between the size of\nthe physical device and the metadata that tracks its size. This inconsistency\ncan lead to the OSD(s) crashing in the future.\n\nThe OSDs that have this inconsistency should be destroyed and reprovisioned. Be\nvery careful to execute this procedure on only one OSD at a time, so as to\nminimize the risk of losing any data. To execute this procedure, where $N\nis the OSD that has the inconsistency, run the following commands:\n\nceph osd out osd.$N\nwhile ! ceph osd safe-to-destroy osd.$N ; do sleep 1m ; done\nceph osd destroy osd.$N\nceph-volume lvm zap /path/to/device\nceph-volume lvm create --osd-id $N --data /path/to/device\n\nNote\n\nWait for this recovery procedure to completely on one OSD before running it\non the next.",
+    "resolution_commands": [
+      "ceph device ls",
+      "ceph osd tree",
+      "ceph health detail"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/rados/operations/health-checks/#bluestore-disk-size-mismatch",
+    "ceph_version": "17.2.8"
+  },
+  "BLUESTORE_NO_COMPRESSION": {
+    "code": "BLUESTORE_NO_COMPRESSION",
+    "heading": "BLUESTORE_NO_COMPRESSION",
+    "severity": "HEALTH_WARN",
+    "summary": "One or more OSDs is unable to load a BlueStore compression plugin.  This issue\nmight be caused by a broken installation, in which the ceph-osd binary does\nnot match the compression plugins. Or it might be caused by a recent upgrade in\nwhich the ceph-",
+    "description": "One or more OSDs is unable to load a BlueStore compression plugin.  This issue\nmight be caused by a broken installation, in which the ceph-osd binary does\nnot match the compression plugins. Or it might be caused by a recent upgrade in\nwhich the ceph-osd daemon was not restarted.\n\nTo resolve this issue, verify that all of the packages on the host that is\nrunning the affected OSD(s) are correctly installed and that the OSD daemon(s)\nhave been restarted. If the problem persists, check the OSD log for information\nabout the source of the problem.",
+    "resolution_commands": [
+      "ceph config set osd bluestore_compression_algorithm snappy",
+      "ceph config set osd bluestore_compression_mode aggressive"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/rados/operations/health-checks/#bluestore-no-compression",
+    "ceph_version": "17.2.8"
+  },
+  "BLUESTORE_SPURIOUS_READ_ERRORS": {
+    "code": "BLUESTORE_SPURIOUS_READ_ERRORS",
+    "heading": "BLUESTORE_SPURIOUS_READ_ERRORS",
+    "severity": "HEALTH_WARN",
+    "summary": "One (or more) BlueStore OSDs detects read errors on the main device.\nBlueStore has recovered from these errors by retrying disk reads.  This alert\nmight indicate issues with underlying hardware, issues with the I/O subsystem,\nor something similar.  S",
+    "description": "One (or more) BlueStore OSDs detects read errors on the main device.\nBlueStore has recovered from these errors by retrying disk reads.  This alert\nmight indicate issues with underlying hardware, issues with the I/O subsystem,\nor something similar.  Such issues can cause permanent data\ncorruption.  Some observations on the root cause of spurious read errors can be\nfound here: https://tracker.ceph.com/issues/22464\n\nThis alert does not require an immediate response, but the affected host might\nneed additional attention: for example, upgrading the host to the latest\nOS/kernel versions and implementing hardware-resource-utilization monitoring.\n\nTo disable this alert on all OSDs, run the following command:\n\nceph config set osd bluestore_warn_on_spurious_read_errors false\n\nOr, to disable this alert on a specific OSD, run the following command:\n\nceph config set osd.123 bluestore_warn_on_spurious_read_errors false",
+    "resolution_commands": [
+      "ceph config set osd bluestore_warn_on_spurious_read_errors false",
+      "ceph config set osd.123 bluestore_warn_on_spurious_read_errors false"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/rados/operations/health-checks/#bluestore-spurious-read-errors",
+    "ceph_version": "17.2.8"
+  },
+  "BLOCK_DEVICE_STALLED_READ_ALERT": {
+    "code": "BLOCK_DEVICE_STALLED_READ_ALERT",
+    "heading": "BLOCK_DEVICE_STALLED_READ_ALERT",
+    "severity": "HEALTH_WARN",
+    "summary": "There are BlueStore log messages that reveal storage drive issues\nthat can cause performance degradation and potentially data unavailability or\nloss. These may indicate a storage drive that is failing and should be\nevaluated and possibly removed and ",
+    "description": "There are BlueStore log messages that reveal storage drive issues\nthat can cause performance degradation and potentially data unavailability or\nloss. These may indicate a storage drive that is failing and should be\nevaluated and possibly removed and replaced.\n\nread stalled read 0x29f40370000~100000 (buffered) since 63410177.290546s, timeout is 5.000000s\n\nHowever, this is difficult to spot because there no discernible warning (a\nhealth warning or info in ceph health detail for example). More observations\ncan be found here: https://tracker.ceph.com/issues/62500\n\nAlso because there can be false positive stalled read instances, a mechanism\nhas been added to increase accuracy. If in the last bdev_stalled_read_warn_lifetime\nseconds the number of stalled read events is found to be greater than or equal to\nbdev_stalled_read_warn_threshold for a given BlueStore block device, this\nwarning will be reported in ceph health detail.  The warning state will be\nremoved when the condition clears.\n\nThe defaults for bdev_stalled_read_warn_lifetime\nand bdev_stalled_read_warn_threshold may be overridden globally or for\nspecific OSDs.\n\nTo change this, run the following command:\n\nceph config set global bdev_stalled_read_warn_lifetime 10\nceph config set global bdev_stalled_read_warn_threshold 5\n\nThis may be done for specific OSDs or a given mask. For example,\nto apply only to SSD OSDs:\n\nceph config set osd.123 bdev_stalled_read_warn_lifetime 10\nceph config set osd.123 bdev_stalled_read_warn_threshold 5\nceph config set class:ssd bdev_stalled_read_warn_lifetime 10\nceph config set class:ssd bdev_stalled_read_warn_threshold 5",
+    "resolution_commands": [
+      "ceph config set global bdev_stalled_read_warn_lifetime 10"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/rados/operations/health-checks/#block-device-stalled-read-alert",
+    "ceph_version": "17.2.8"
+  },
+  "WAL_DEVICE_STALLED_READ_ALERT": {
+    "code": "WAL_DEVICE_STALLED_READ_ALERT",
+    "heading": "WAL_DEVICE_STALLED_READ_ALERT",
+    "severity": "HEALTH_WARN",
+    "summary": "The warning state WAL_DEVICE_STALLED_READ_ALERT is raised to indicate\nstalled read instances on a given BlueStore OSD’s WAL_DEVICE.  This\nwarning can be configured via the bdev_stalled_read_warn_lifetime\nand bdev_stalled_read_warn_threshold options w",
+    "description": "The warning state WAL_DEVICE_STALLED_READ_ALERT is raised to indicate\nstalled read instances on a given BlueStore OSD’s WAL_DEVICE.  This\nwarning can be configured via the bdev_stalled_read_warn_lifetime\nand bdev_stalled_read_warn_threshold options with commands similar\nto those described in the BLOCK_DEVICE_STALLED_READ_ALERT warning section.",
+    "resolution_commands": [
+      "ceph device ls",
+      "ceph device info <device-id>",
+      "dmesg | grep -i blk"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/rados/operations/health-checks/#wal-device-stalled-read-alert",
+    "ceph_version": "17.2.8"
+  },
+  "DB_DEVICE_STALLED_READ_ALERT": {
+    "code": "DB_DEVICE_STALLED_READ_ALERT",
+    "heading": "DB_DEVICE_STALLED_READ_ALERT",
+    "severity": "HEALTH_WARN",
+    "summary": "The warning state DB_DEVICE_STALLED_READ_ALERT is raised to indicate\nstalled read instances on a given BlueStore OSD’s DB_DEVICE.  This\nwarning can be configured via the bdev_stalled_read_warn_lifetime\nand bdev_stalled_read_warn_threshold options wit",
+    "description": "The warning state DB_DEVICE_STALLED_READ_ALERT is raised to indicate\nstalled read instances on a given BlueStore OSD’s DB_DEVICE.  This\nwarning can be configured via the bdev_stalled_read_warn_lifetime\nand bdev_stalled_read_warn_threshold options with commands similar\nto those described in the BLOCK_DEVICE_STALLED_READ_ALERT warning section.",
+    "resolution_commands": [
+      "ceph device ls",
+      "ceph device info <device-id>",
+      "dmesg | grep -i blk"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/rados/operations/health-checks/#db-device-stalled-read-alert",
+    "ceph_version": "17.2.8"
+  },
+  "BLUESTORE_SLOW_OP_ALERT": {
+    "code": "BLUESTORE_SLOW_OP_ALERT",
+    "heading": "BLUESTORE_SLOW_OP_ALERT",
+    "severity": "HEALTH_WARN",
+    "summary": "There are BlueStore log messages that reveal storage drive issues that can lead\nto performance degradation and data unavailability or loss. These indicate\nthat the storage drive may be failing and should be investigated and\npotentially replaced.",
+    "description": "There are BlueStore log messages that reveal storage drive issues that can lead\nto performance degradation and data unavailability or loss. These indicate\nthat the storage drive may be failing and should be investigated and\npotentially replaced.\n\nlog_latency_fn slow operation observed for _txc_committed_kv, latency = 12.028621219s, txc = 0x55a107c30f00\nlog_latency_fn slow operation observed for upper_bound, latency = 6.25955s\nlog_latency slow operation observed for submit_transaction..\n\nAs there can be false positive slow ops instances, a mechanism has\nbeen added for more reliability. If in the last bluestore_slow_ops_warn_lifetime\nseconds the number of slow ops indications are found greater than or equal to\nbluestore_slow_ops_warn_threshold for a given BlueStore OSD, this\nwarning will be reported in ceph health detail. The warning state is\ncleared when the condition clears.\n\nThe defaults for bluestore_slow_ops_warn_lifetime and\nbluestore_slow_ops_warn_threshold may be overidden globally or for\nspecific OSDs.\n\nTo change this, run the following command:\n\nceph config set global bluestore_slow_ops_warn_lifetime 10\nceph config set global bluestore_slow_ops_warn_threshold 5\n\nthis may be done for specific OSDs or a given mask, for example:\n\nceph config set osd.123 bluestore_slow_ops_warn_lifetime 10\nceph config set osd.123 bluestore_slow_ops_warn_threshold 5\nceph config set class:ssd bluestore_slow_ops_warn_lifetime 10\nceph config set class:ssd bluestore_slow_ops_warn_threshold 5",
+    "resolution_commands": [
+      "ceph config set global bluestore_slow_ops_warn_lifetime 10"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/rados/operations/health-checks/#bluestore-slow-op-alert",
+    "ceph_version": "17.2.8"
+  },
+  "DEVICE_HEALTH": {
+    "code": "DEVICE_HEALTH",
+    "heading": "DEVICE_HEALTH",
+    "severity": "HEALTH_WARN",
+    "summary": "One or more OSD devices are expected to fail soon, where the warning threshold\nis determined by the mgr/devicehealth/warn_threshold config option.",
+    "description": "One or more OSD devices are expected to fail soon, where the warning threshold\nis determined by the mgr/devicehealth/warn_threshold config option.\n\nBecause this alert applies only to OSDs that are currently marked in, the\nappropriate response to this expected failure is (1) to mark the OSD out so\nthat data is migrated off of the OSD, and then (2) to remove the hardware from\nthe system. Note that this marking out is normally done automatically if\nmgr/devicehealth/self_heal is enabled (as determined by\nmgr/devicehealth/mark_out_threshold).  If an OSD device is compromised but\nthe OSD(s) on that device are still up, recovery can be degraded.  In such\ncases it may be advantageous to forcibly stop the OSD daemon(s) in question so\nthat recovery can proceed from surviving healthly OSDs.  This must be\ndone with extreme care and attention to failure domains so that data availability\nis not compromised.\n\nTo check device health, run the following command:\n\nceph device info <device-id>\n\nDevice life expectancy is set either by a prediction model that the Ceph Manager\nruns or by an external tool that runs a command the following form:\n\nceph device set-life-expectancy <device-id> <from> <to>\n\nYou can change the stored life expectancy manually, but such a change usually\ndoesn’t accomplish anything. The reason for this is that whichever tool\noriginally set the stored life expectancy will probably undo your change by\nsetting it again, and a change to the stored value does not affect the actual\nhealth of the hardware device.",
+    "resolution_commands": [
+      "ceph device info <device-id>"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/rados/operations/health-checks/#id2",
+    "ceph_version": "17.2.8"
+  },
+  "DEVICE_HEALTH_IN_USE": {
+    "code": "DEVICE_HEALTH_IN_USE",
+    "heading": "DEVICE_HEALTH_IN_USE",
+    "severity": "HEALTH_WARN",
+    "summary": "One or more devices (that is, OSDs) are expected to fail soon and have been\nmarked out of the cluster (as controlled by\nmgr/devicehealth/mark_out_threshold), but they are still participating in\none or more Placement Groups. This might be because the ",
+    "description": "One or more devices (that is, OSDs) are expected to fail soon and have been\nmarked out of the cluster (as controlled by\nmgr/devicehealth/mark_out_threshold), but they are still participating in\none or more Placement Groups. This might be because the OSD(s) were marked\nout only recently and data is still migrating, or because data cannot be\nmigrated off of the OSD(s) for some reason (for example, the cluster is nearly\nfull, or the CRUSH hierarchy is structured so that there isn’t another suitable\nOSD to migrate the data to).\n\nThis message can be silenced by disabling self-heal behavior (that is, setting\nmgr/devicehealth/self_heal to false), by adjusting\nmgr/devicehealth/mark_out_threshold, or by addressing whichever condition\nis preventing data from being migrated off of the ailing OSD(s).",
+    "resolution_commands": [
+      "ceph device ls",
+      "ceph device info <device-id>",
+      "ceph osd out <osd-id>",
+      "ceph orch osd rm <osd-id>"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/rados/operations/health-checks/#device-health-in-use",
+    "ceph_version": "17.2.8"
+  },
+  "DEVICE_HEALTH_TOOMANY": {
+    "code": "DEVICE_HEALTH_TOOMANY",
+    "heading": "DEVICE_HEALTH_TOOMANY",
+    "severity": "HEALTH_WARN",
+    "summary": "Too many devices (that is, OSDs) are expected to fail soon, and because\nmgr/devicehealth/self_heal behavior is enabled, marking out all of the\nailing OSDs would exceed the cluster’s mon_osd_min_in_ratio ratio.  This\nratio prevents a cascade of too ma",
+    "description": "Too many devices (that is, OSDs) are expected to fail soon, and because\nmgr/devicehealth/self_heal behavior is enabled, marking out all of the\nailing OSDs would exceed the cluster’s mon_osd_min_in_ratio ratio.  This\nratio prevents a cascade of too many OSDs from being automatically marked\nout.\n\nYou should promptly add new OSDs to the cluster to prevent data loss, or\nincrementally replace the failing OSDs.\n\nAlternatively, you can silence this health check by adjusting options including\nmon_osd_min_in_ratio or mgr/devicehealth/mark_out_threshold.  Be\nwarned, however, that this will increase the likelihood of unrecoverable data\nloss.",
+    "resolution_commands": [
+      "ceph config set mgr mgr/devicehealth/warn_threshold <threshold>",
+      "ceph device ls"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/rados/operations/health-checks/#device-health-toomany",
+    "ceph_version": "17.2.8"
+  },
+  "PG_AVAILABILITY": {
+    "code": "PG_AVAILABILITY",
+    "heading": "PG_AVAILABILITY",
+    "severity": "HEALTH_WARN",
+    "summary": "Data availability is reduced. In other words, the cluster is unable to service\npotential read or write requests for at least some data in the cluster.  More\nprecisely, one or more Placement Groups (PGs) are in a state that does not\nallow I/O requests",
+    "description": "Data availability is reduced. In other words, the cluster is unable to service\npotential read or write requests for at least some data in the cluster.  More\nprecisely, one or more Placement Groups (PGs) are in a state that does not\nallow I/O requests to be serviced. Any of the following PG states are\nproblematic if they do not clear quickly: peering, stale, incomplete, and\nthe lack of active.\n\nFor detailed information about which PGs are affected, run the following\ncommand:\n\nceph health detail\n\nIn most cases, the root cause of this issue is that one or more OSDs are\ncurrently down: see OSD_DOWN above.\n\nTo see the state of a specific problematic PG, run the following command:\n\nceph tell <pgid> query",
+    "resolution_commands": [
+      "ceph health detail",
+      "ceph tell <pgid> query"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/rados/operations/health-checks/#pg-availability",
+    "ceph_version": "17.2.8"
+  },
+  "PG_DEGRADED": {
+    "code": "PG_DEGRADED",
+    "heading": "PG_DEGRADED",
+    "severity": "HEALTH_WARN",
+    "summary": "Data redundancy is reduced for some data: in other words, the cluster does not\nhave the desired number of replicas for all data (in the case of replicated\npools) or erasure code fragments (in the case of erasure-coded pools).  More\nprecisely, one or ",
+    "description": "Data redundancy is reduced for some data: in other words, the cluster does not\nhave the desired number of replicas for all data (in the case of replicated\npools) or erasure code fragments (in the case of erasure-coded pools).  More\nprecisely, one or more Placement Groups (PGs):\n\nhave the degraded or undersized flag set, which means that there are not\nenough instances of that PG in the cluster; or\nhave not had the clean state set for a long time.\n\nhave the degraded or undersized flag set, which means that there are not\nenough instances of that PG in the cluster; or\n\nhave not had the clean state set for a long time.\n\nFor detailed information about which PGs are affected, run the following\ncommand:\n\nceph health detail\n\nIn most cases, the root cause of this issue is that one or more OSDs are\ncurrently “down”: see OSD_DOWN above.\n\nTo see the state of a specific problematic PG, run the following command:\n\nceph tell <pgid> query",
+    "resolution_commands": [
+      "ceph health detail",
+      "ceph tell <pgid> query"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/rados/operations/health-checks/#pg-degraded",
+    "ceph_version": "17.2.8"
+  },
+  "PG_RECOVERY_FULL": {
+    "code": "PG_RECOVERY_FULL",
+    "heading": "PG_RECOVERY_FULL",
+    "severity": "HEALTH_WARN",
+    "summary": "Data redundancy might be reduced or even put at risk for some data due to a\nlack of free space in the cluster. More precisely, one or more Placement Groups\nhave the recovery_toofull flag set, which means that the cluster is unable to\nmigrate or recov",
+    "description": "Data redundancy might be reduced or even put at risk for some data due to a\nlack of free space in the cluster. More precisely, one or more Placement Groups\nhave the recovery_toofull flag set, which means that the cluster is unable to\nmigrate or recover data because one or more OSDs are above the full\nthreshold.\n\nFor steps to resolve this condition, see OSD_FULL above.",
+    "resolution_commands": [
+      "ceph df",
+      "ceph osd set-full-ratio <ratio>",
+      "ceph osd set-backfillfull-ratio <ratio>",
+      "ceph health detail"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/rados/operations/health-checks/#pg-recovery-full",
+    "ceph_version": "17.2.8"
+  },
+  "PG_BACKFILL_FULL": {
+    "code": "PG_BACKFILL_FULL",
+    "heading": "PG_BACKFILL_FULL",
+    "severity": "HEALTH_WARN",
+    "summary": "Data redundancy might be reduced or even put at risk for some data due to a\nlack of free space in the cluster. More precisely, one or more Placement Groups\nhave the backfill_toofull flag set, which means that the cluster is unable to\nmigrate or recov",
+    "description": "Data redundancy might be reduced or even put at risk for some data due to a\nlack of free space in the cluster. More precisely, one or more Placement Groups\nhave the backfill_toofull flag set, which means that the cluster is unable to\nmigrate or recover data because one or more OSDs are above the backfillfull\nthreshold.\n\nFor steps to resolve this condition, see OSD_BACKFILLFULL above.",
+    "resolution_commands": [
+      "ceph df",
+      "ceph osd set-backfillfull-ratio <ratio>",
+      "ceph health detail"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/rados/operations/health-checks/#pg-backfill-full",
+    "ceph_version": "17.2.8"
+  },
+  "PG_DAMAGED": {
+    "code": "PG_DAMAGED",
+    "heading": "PG_DAMAGED",
+    "severity": "HEALTH_WARN",
+    "summary": "Data scrubbing has discovered problems with data consistency in the cluster.\nMore precisely, one or more Placement Groups either (1) have the inconsistent\nor snaptrim_error flag set, which indicates that an earlier data scrub\noperation found a proble",
+    "description": "Data scrubbing has discovered problems with data consistency in the cluster.\nMore precisely, one or more Placement Groups either (1) have the inconsistent\nor snaptrim_error flag set, which indicates that an earlier data scrub\noperation found a problem, or (2) have the repair flag set, which means that\na repair for such an inconsistency is currently in progress.\n\nFor more information, see Troubleshooting PGs.",
+    "resolution_commands": [
+      "ceph health detail",
+      "ceph pg repair <pgid>",
+      "ceph tell <pgid> query"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/rados/operations/health-checks/#pg-damaged",
+    "ceph_version": "17.2.8"
+  },
+  "OSD_SCRUB_ERRORS": {
+    "code": "OSD_SCRUB_ERRORS",
+    "heading": "OSD_SCRUB_ERRORS",
+    "severity": "HEALTH_WARN",
+    "summary": "Recent OSD scrubs have discovered inconsistencies. This alert is generally\npaired with PG_DAMAGED (see above).",
+    "description": "Recent OSD scrubs have discovered inconsistencies. This alert is generally\npaired with PG_DAMAGED (see above).\n\nFor more information, see Troubleshooting PGs.",
+    "resolution_commands": [
+      "ceph pg repair <pgid>",
+      "ceph health detail",
+      "ceph pg dump | grep scrub_errors"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/rados/operations/health-checks/#osd-scrub-errors",
+    "ceph_version": "17.2.8"
+  },
+  "OSD_TOO_MANY_REPAIRS": {
+    "code": "OSD_TOO_MANY_REPAIRS",
+    "heading": "OSD_TOO_MANY_REPAIRS",
+    "severity": "HEALTH_WARN",
+    "summary": "The count of read repairs has exceeded the config value threshold\nmon_osd_warn_num_repaired (default: 10).  Because scrub handles errors\nonly for data at rest, and because any read error that occurs when another\nreplica is available is repaired immed",
+    "description": "The count of read repairs has exceeded the config value threshold\nmon_osd_warn_num_repaired (default: 10).  Because scrub handles errors\nonly for data at rest, and because any read error that occurs when another\nreplica is available is repaired immediately so that the client can get\nthe object data, there might exist failing disks that are not registering any\nscrub errors. This repair count is maintained as a way of identifying any such\nfailing disks.",
+    "resolution_commands": [
+      "ceph health detail",
+      "ceph pg dump | grep repair",
+      "ceph config set osd osd_scrub_auto_repair_num_errors 5"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/rados/operations/health-checks/#osd-too-many-repairs",
+    "ceph_version": "17.2.8"
+  },
+  "LARGE_OMAP_OBJECTS": {
+    "code": "LARGE_OMAP_OBJECTS",
+    "heading": "LARGE_OMAP_OBJECTS",
+    "severity": "HEALTH_WARN",
+    "summary": "One or more pools contain large omap objects, as determined by\nosd_deep_scrub_large_omap_object_key_threshold (the threshold for the\nnumber of keys to determine what is considered a large omap object) or\nosd_deep_scrub_large_omap_object_value_sum_thr",
+    "description": "One or more pools contain large omap objects, as determined by\nosd_deep_scrub_large_omap_object_key_threshold (the threshold for the\nnumber of keys to determine what is considered a large omap object) or\nosd_deep_scrub_large_omap_object_value_sum_threshold (the threshold for the\nsummed size in bytes of all key values to determine what is considered a large\nomap object) or both.  To find more information on object name, key count, and\nsize in bytes, search the cluster log for ‘Large omap object found’. This issue\ncan be caused by RGW-bucket index objects that do not have automatic resharding\nenabled. For more information on resharding, see RGW Dynamic Bucket Index\nResharding.\n\nTo adjust the thresholds mentioned above, run the following commands:\n\nceph config set osd osd_deep_scrub_large_omap_object_key_threshold <keys>\nceph config set osd osd_deep_scrub_large_omap_object_value_sum_threshold <bytes>",
+    "resolution_commands": [
+      "ceph config set osd osd_deep_scrub_large_omap_object_key_threshold <keys>",
+      "ceph config set osd osd_deep_scrub_large_omap_object_value_sum_threshold <bytes>"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/rados/operations/health-checks/#large-omap-objects",
+    "ceph_version": "17.2.8"
+  },
+  "CACHE_POOL_NEAR_FULL": {
+    "code": "CACHE_POOL_NEAR_FULL",
+    "heading": "CACHE_POOL_NEAR_FULL",
+    "severity": "HEALTH_WARN",
+    "summary": "A cache-tier pool is nearly full, as determined by the target_max_bytes and\ntarget_max_objects properties of the cache pool. When the pool reaches the\ntarget threshold, write requests to the pool might block while data is flushed\nand evicted from the",
+    "description": "A cache-tier pool is nearly full, as determined by the target_max_bytes and\ntarget_max_objects properties of the cache pool. When the pool reaches the\ntarget threshold, write requests to the pool might block while data is flushed\nand evicted from the cache. This state normally leads to very high latencies\nand poor performance.\n\nTo adjust the cache pool’s target size, run the following commands:\n\nceph osd pool set <cache-pool-name> target_max_bytes <bytes>\nceph osd pool set <cache-pool-name> target_max_objects <objects>\n\nThere might be other reasons that normal cache flush and evict activity are\nthrottled: for example, reduced availability of the base tier, reduced\nperformance of the base tier, or overall cluster load.",
+    "resolution_commands": [
+      "ceph osd pool set <cache-pool-name> target_max_bytes <bytes>",
+      "ceph osd pool set <cache-pool-name> target_max_objects <objects>"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/rados/operations/health-checks/#cache-pool-near-full",
+    "ceph_version": "17.2.8"
+  },
+  "TOO_FEW_PGS": {
+    "code": "TOO_FEW_PGS",
+    "heading": "TOO_FEW_PGS",
+    "severity": "HEALTH_WARN",
+    "summary": "The number of Placement Groups (PGs) that are in use in the cluster is below\nthe configurable threshold of mon_pg_warn_min_per_osd PGs per OSD. This can\nlead to suboptimal distribution and suboptimal balance of data across the OSDs\nin the cluster, an",
+    "description": "The number of Placement Groups (PGs) that are in use in the cluster is below\nthe configurable threshold of mon_pg_warn_min_per_osd PGs per OSD. This can\nlead to suboptimal distribution and suboptimal balance of data across the OSDs\nin the cluster, and a reduction of overall performance.\n\nIf data pools have not yet been created, this condition is expected.\n\nTo address this issue, you can increase the PG count for existing pools or\ncreate new pools.  For more information, see\nChoosing the Number of PGs.",
+    "resolution_commands": [
+      "ceph osd pool set <pool-name> pg_autoscale_mode on",
+      "ceph osd pool set <pool-name> pg_num <new-pg-num>"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/rados/operations/health-checks/#too-few-pgs",
+    "ceph_version": "17.2.8"
+  },
+  "POOL_PG_NUM_NOT_POWER_OF_TWO": {
+    "code": "POOL_PG_NUM_NOT_POWER_OF_TWO",
+    "heading": "POOL_PG_NUM_NOT_POWER_OF_TWO",
+    "severity": "HEALTH_WARN",
+    "summary": "One or more pools have a pg_num value that is not a power of two.  Although\nthis is not strictly incorrect, it does lead to a less balanced distribution of\ndata because some Placement Groups will have roughly twice as much data as\nothers have.",
+    "description": "One or more pools have a pg_num value that is not a power of two.  Although\nthis is not strictly incorrect, it does lead to a less balanced distribution of\ndata because some Placement Groups will have roughly twice as much data as\nothers have.\n\nThis is easily corrected by setting the pg_num value for the affected\npool(s) to a nearby power of two. To do so, run the following command:\n\nceph osd pool set <pool-name> pg_num <value>\n\nTo disable this health check, run the following command:\n\nceph config set global mon_warn_on_pool_pg_num_not_power_of_two false",
+    "resolution_commands": [
+      "ceph osd pool set <pool-name> pg_num <value>",
+      "ceph config set global mon_warn_on_pool_pg_num_not_power_of_two false"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/rados/operations/health-checks/#pool-pg-num-not-power-of-two",
+    "ceph_version": "17.2.8"
+  },
+  "POOL_TOO_FEW_PGS": {
+    "code": "POOL_TOO_FEW_PGS",
+    "heading": "POOL_TOO_FEW_PGS",
+    "severity": "HEALTH_WARN",
+    "summary": "One or more pools should probably have more Placement Groups (PGs), given the\namount of data that is currently stored in the pool. This issue can lead to\nsuboptimal distribution and suboptimal balance of data across the OSDs in the\ncluster, and a red",
+    "description": "One or more pools should probably have more Placement Groups (PGs), given the\namount of data that is currently stored in the pool. This issue can lead to\nsuboptimal distribution and suboptimal balance of data across the OSDs in the\ncluster, and a reduction of overall performance. This alert is raised only if\nthe pg_autoscale_mode property on the pool is set to warn.\n\nTo disable the alert, entirely disable auto-scaling of PGs for the pool by\nrunning the following command:\n\nceph osd pool set <pool-name> pg_autoscale_mode off\n\nTo allow the cluster to automatically adjust the number of PGs for the pool,\nrun the following command:\n\nceph osd pool set <pool-name> pg_autoscale_mode on\n\nAlternatively, to manually set the number of PGs for the pool to the\nrecommended amount, run the following command:\n\nceph osd pool set <pool-name> pg_num <new-pg-num>\n\nFor more information, see Choosing the Number of PGs and\nAutoscaling placement groups.",
+    "resolution_commands": [
+      "ceph osd pool set <pool-name> pg_autoscale_mode off",
+      "ceph osd pool set <pool-name> pg_autoscale_mode on",
+      "ceph osd pool set <pool-name> pg_num <new-pg-num>"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/rados/operations/health-checks/#pool-too-few-pgs",
+    "ceph_version": "17.2.8"
+  },
+  "TOO_MANY_PGS": {
+    "code": "TOO_MANY_PGS",
+    "heading": "TOO_MANY_PGS",
+    "severity": "HEALTH_WARN",
+    "summary": "The number of Placement Groups (PGs) in use in the cluster is above the\nconfigurable threshold of mon_max_pg_per_osd PGs per OSD. If this threshold\nis exceeded, the cluster will not allow new pools to be created, pool pg_num\nto be increased, or pool ",
+    "description": "The number of Placement Groups (PGs) in use in the cluster is above the\nconfigurable threshold of mon_max_pg_per_osd PGs per OSD. If this threshold\nis exceeded, the cluster will not allow new pools to be created, pool pg_num\nto be increased, or pool replication to be increased (any of which, if allowed,\nwould lead to more PGs in the cluster). A large number of PGs can lead to\nhigher memory utilization for OSD daemons, slower peering after cluster state\nchanges (for example, OSD restarts, additions, or removals), and higher load on\nthe Manager and Monitor daemons.\n\nThe simplest way to mitigate the problem is to increase the number of OSDs in\nthe cluster by adding more hardware. Note that, because the OSD count that is\nused for the purposes of this health check is the number of in OSDs,\nmarking out OSDs in (if there are any out OSDs available) can also\nhelp. To do so, run the following command:\n\nceph osd in <osd id(s)>\n\nFor more information, see Choosing the Number of PGs.",
+    "resolution_commands": [
+      "ceph osd in <osd id(s)>"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/rados/operations/health-checks/#too-many-pgs",
+    "ceph_version": "17.2.8"
+  },
+  "POOL_TOO_MANY_PGS": {
+    "code": "POOL_TOO_MANY_PGS",
+    "heading": "POOL_TOO_MANY_PGS",
+    "severity": "HEALTH_WARN",
+    "summary": "One or more pools should probably have fewer Placement Groups (PGs), given the\namount of data that is currently stored in the pool. This issue can lead to\nhigher memory utilization for OSD daemons, slower peering after cluster state\nchanges (for exam",
+    "description": "One or more pools should probably have fewer Placement Groups (PGs), given the\namount of data that is currently stored in the pool. This issue can lead to\nhigher memory utilization for OSD daemons, slower peering after cluster state\nchanges (for example, OSD restarts, additions, or removals), and higher load on\nthe Manager and Monitor daemons. This alert is raised only if the\npg_autoscale_mode property on the pool is set to warn.\n\nTo disable the alert, entirely disable auto-scaling of PGs for the pool by\nrunning the following command:\n\nceph osd pool set <pool-name> pg_autoscale_mode off\n\nTo allow the cluster to automatically adjust the number of PGs for the pool,\nrun the following command:\n\nceph osd pool set <pool-name> pg_autoscale_mode on\n\nAlternatively, to manually set the number of PGs for the pool to the\nrecommended amount, run the following command:\n\nceph osd pool set <pool-name> pg_num <new-pg-num>\n\nFor more information, see Choosing the Number of PGs and\nAutoscaling placement groups.",
+    "resolution_commands": [
+      "ceph osd pool set <pool-name> pg_autoscale_mode off",
+      "ceph osd pool set <pool-name> pg_autoscale_mode on",
+      "ceph osd pool set <pool-name> pg_num <new-pg-num>"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/rados/operations/health-checks/#pool-too-many-pgs",
+    "ceph_version": "17.2.8"
+  },
+  "POOL_TARGET_SIZE_BYTES_OVERCOMMITTED": {
+    "code": "POOL_TARGET_SIZE_BYTES_OVERCOMMITTED",
+    "heading": "POOL_TARGET_SIZE_BYTES_OVERCOMMITTED",
+    "severity": "HEALTH_WARN",
+    "summary": "One or more pools does have a target_size_bytes property that is set in\norder to estimate the expected size of the pool, but the value or values of\nthis property are greater than the total available storage (either by\nthemselves or in combination wit",
+    "description": "One or more pools does have a target_size_bytes property that is set in\norder to estimate the expected size of the pool, but the value or values of\nthis property are greater than the total available storage (either by\nthemselves or in combination with other pools).\n\nThis alert is usually an indication that the target_size_bytes value for\nthe pool is too large and should be reduced or set to zero. To reduce the\ntarget_size_bytes value or set it to zero, run the following command:\n\nceph osd pool set <pool-name> target_size_bytes 0\n\nThe above command sets the value of target_size_bytes to zero. To set the\nvalue of target_size_bytes to a non-zero value, replace the 0 with that\nnon-zero value.\n\nFor more information, see Specifying expected pool size.",
+    "resolution_commands": [
+      "ceph osd pool set <pool-name> target_size_bytes 0"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/rados/operations/health-checks/#pool-target-size-bytes-overcommitted",
+    "ceph_version": "17.2.8"
+  },
+  "POOL_HAS_TARGET_SIZE_BYTES_AND_RATIO": {
+    "code": "POOL_HAS_TARGET_SIZE_BYTES_AND_RATIO",
+    "heading": "POOL_HAS_TARGET_SIZE_BYTES_AND_RATIO",
+    "severity": "HEALTH_WARN",
+    "summary": "One or more pools have both target_size_bytes and target_size_ratio set\nin order to estimate the expected size of the pool.  Only one of these\nproperties should be non-zero. If both are set to a non-zero value, then\ntarget_size_ratio takes precedence",
+    "description": "One or more pools have both target_size_bytes and target_size_ratio set\nin order to estimate the expected size of the pool.  Only one of these\nproperties should be non-zero. If both are set to a non-zero value, then\ntarget_size_ratio takes precedence and target_size_bytes is ignored.\n\nTo reset target_size_bytes to zero, run the following command:\n\nceph osd pool set <pool-name> target_size_bytes 0\n\nFor more information, see Specifying expected pool size.",
+    "resolution_commands": [
+      "ceph osd pool set <pool-name> target_size_bytes 0"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/rados/operations/health-checks/#pool-has-target-size-bytes-and-ratio",
+    "ceph_version": "17.2.8"
+  },
+  "TOO_FEW_OSDS": {
+    "code": "TOO_FEW_OSDS",
+    "heading": "TOO_FEW_OSDS",
+    "severity": "HEALTH_WARN",
+    "summary": "The number of OSDs in the cluster is below the configurable threshold of\nosd_pool_default_size. This means that some or all data may not be able to\nsatisfy the data protection policy specified in CRUSH rules and pool settings.",
+    "description": "The number of OSDs in the cluster is below the configurable threshold of\nosd_pool_default_size. This means that some or all data may not be able to\nsatisfy the data protection policy specified in CRUSH rules and pool settings.",
+    "resolution_commands": [
+      "ceph osd tree",
+      "ceph orch apply osd --all-available-devices",
+      "ceph osd stat"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/rados/operations/health-checks/#too-few-osds",
+    "ceph_version": "17.2.8"
+  },
+  "SMALLER_PGP_NUM": {
+    "code": "SMALLER_PGP_NUM",
+    "heading": "SMALLER_PGP_NUM",
+    "severity": "HEALTH_WARN",
+    "summary": "One or more pools have a pgp_num value less than pg_num. This alert is\nnormally an indication that the Placement Group (PG) count was increased\nwithout any increase in the placement behavior.",
+    "description": "One or more pools have a pgp_num value less than pg_num. This alert is\nnormally an indication that the Placement Group (PG) count was increased\nwithout any increase in the placement behavior.\n\nThis disparity is sometimes brought about deliberately, in order to separate\nout the split step when the PG count is adjusted from the data migration that\nis needed when pgp_num is changed.\n\nThis issue is normally resolved by setting pgp_num to match pg_num, so\nas to trigger the data migration, by running the following command:\n\nceph osd pool set <pool> pgp_num <pg-num-value>",
+    "resolution_commands": [
+      "ceph osd pool set <pool> pgp_num <pg-num-value>"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/rados/operations/health-checks/#smaller-pgp-num",
+    "ceph_version": "17.2.8"
+  },
+  "MANY_OBJECTS_PER_PG": {
+    "code": "MANY_OBJECTS_PER_PG",
+    "heading": "MANY_OBJECTS_PER_PG",
+    "severity": "HEALTH_WARN",
+    "summary": "One or more pools have an average number of objects per Placement Group (PG)\nthat is significantly higher than the overall cluster average. The specific\nthreshold is determined by the mon_pg_warn_max_object_skew configuration\nvalue.",
+    "description": "One or more pools have an average number of objects per Placement Group (PG)\nthat is significantly higher than the overall cluster average. The specific\nthreshold is determined by the mon_pg_warn_max_object_skew configuration\nvalue.\n\nThis alert is usually an indication that the pool(s) that contain most of the\ndata in the cluster have too few PGs, or that other pools that contain less\ndata have too many PGs. See TOO_MANY_PGS above.\n\nTo silence the health check, raise the threshold by adjusting the\nmon_pg_warn_max_object_skew config option on the managers.\n\nThe health check is silenced for a specific pool only if\npg_autoscale_mode is set to on.",
+    "resolution_commands": [
+      "ceph osd pool set <pool-name> pg_num <new-pg-num>",
+      "ceph osd pool set <pool-name> pg_autoscale_mode on"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/rados/operations/health-checks/#many-objects-per-pg",
+    "ceph_version": "17.2.8"
+  },
+  "POOL_APP_NOT_ENABLED": {
+    "code": "POOL_APP_NOT_ENABLED",
+    "heading": "POOL_APP_NOT_ENABLED",
+    "severity": "HEALTH_WARN",
+    "summary": "A pool exists but the pool has not been tagged for use by a particular\napplication.",
+    "description": "A pool exists but the pool has not been tagged for use by a particular\napplication.\n\nTo resolve this issue, tag the pool for use by an application. For\nexample, if the pool is used by RBD, run the following command:\n\nrbd pool init <poolname>\n\nAlternatively, if the pool is being used by a custom application (here ‘foo’),\nyou can label the pool by running the following low-level command:\n\nceph osd pool application enable foo\n\nFor more information, see Associating a Pool with an Application.",
+    "resolution_commands": [
+      "rbd pool init <poolname>"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/rados/operations/health-checks/#pool-app-not-enabled",
+    "ceph_version": "17.2.8"
+  },
+  "POOL_NEAR_FULL": {
+    "code": "POOL_NEAR_FULL",
+    "heading": "POOL_NEAR_FULL",
+    "severity": "HEALTH_WARN",
+    "summary": "One or more pools are approaching a configured fullness threshold.",
+    "description": "One or more pools are approaching a configured fullness threshold.\n\nOne of the several thresholds that can raise this health check is determined by\nthe mon_pool_quota_warn_threshold configuration option.\n\nPool quotas can be adjusted up or down (or removed) by running the following\ncommands:\n\nceph osd pool set-quota <pool> max_bytes <bytes>\nceph osd pool set-quota <pool> max_objects <objects>\n\nTo disable a quota, set the quota value to 0.\n\nOther thresholds that can raise the two health checks above are\nmon_osd_nearfull_ratio and mon_osd_full_ratio. For details and\nresolution, see Storage Capacity and No Free Drive Space.",
+    "resolution_commands": [
+      "ceph osd pool set-quota <pool> max_bytes <bytes>\nceph osd pool set-quota <pool> max_objects <objects>"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/rados/operations/health-checks/#pool-near-full",
+    "ceph_version": "17.2.8"
+  },
+  "OBJECT_MISPLACED": {
+    "code": "OBJECT_MISPLACED",
+    "heading": "OBJECT_MISPLACED",
+    "severity": "HEALTH_WARN",
+    "summary": "One or more objects in the cluster are not stored on the node that CRUSH\nprefers that they be stored on. This alert is an indication that data migration\ndue to a recent cluster change has not yet completed.",
+    "description": "One or more objects in the cluster are not stored on the node that CRUSH\nprefers that they be stored on. This alert is an indication that data migration\ndue to a recent cluster change has not yet completed.\n\nMisplaced data is not a dangerous condition in and of itself; data consistency\nis never at risk, and old copies of objects will not be removed until the\ndesired number of new copies (in the desired locations) has been created.",
+    "resolution_commands": [
+      "ceph health detail",
+      "ceph osd stat",
+      "ceph pg stat"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/rados/operations/health-checks/#object-misplaced",
+    "ceph_version": "17.2.8"
+  },
+  "OBJECT_UNFOUND": {
+    "code": "OBJECT_UNFOUND",
+    "heading": "OBJECT_UNFOUND",
+    "severity": "HEALTH_WARN",
+    "summary": "One or more objects in the cluster cannot be found. More precisely, the OSDs\nknow that a new or updated copy of an object should exist, but no such copy has\nbeen found on OSDs that are currently online.",
+    "description": "One or more objects in the cluster cannot be found. More precisely, the OSDs\nknow that a new or updated copy of an object should exist, but no such copy has\nbeen found on OSDs that are currently online.\n\nRead or write requests to unfound objects will block.\n\nIdeally, a “down” OSD that has a more recent copy of the unfound object can be\nbrought back online. To identify candidate OSDs, check the peering state of the\nPG(s) responsible for the unfound object. To see the peering state, run the\nfollowing command:\n\nceph tell <pgid> query\n\nOn the other hand, if the latest copy of the object is not available, the\ncluster can be told to roll back to a previous version of the object. For more\ninformation, see Unfound Objects.",
+    "resolution_commands": [
+      "ceph tell <pgid> query"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/rados/operations/health-checks/#object-unfound",
+    "ceph_version": "17.2.8"
+  },
+  "SLOW_OPS": {
+    "code": "SLOW_OPS",
+    "heading": "SLOW_OPS",
+    "severity": "HEALTH_WARN",
+    "summary": "One or more OSD requests or monitor requests are taking a long time to process.\nThis alert might be an indication of extreme load, a slow storage device, or a\nsoftware bug.",
+    "description": "One or more OSD requests or monitor requests are taking a long time to process.\nThis alert might be an indication of extreme load, a slow storage device, or a\nsoftware bug.\n\nTo query the request queue for the daemon that is causing the slowdown, run the\nfollowing command from the daemon’s host:\n\nceph daemon osd.<id> ops\n\nTo see a summary of the slowest recent requests, run the following command:\n\nceph daemon osd.<id> dump_historic_ops\n\nTo see the location of a specific OSD, run the following command:\n\nceph osd find osd.<id>",
+    "resolution_commands": [
+      "ceph daemon osd.<id> dump_historic_ops",
+      "ceph osd find osd.<id>"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/rados/operations/health-checks/#slow-ops",
+    "ceph_version": "17.2.8"
+  },
+  "PG_NOT_SCRUBBED": {
+    "code": "PG_NOT_SCRUBBED",
+    "heading": "PG_NOT_SCRUBBED",
+    "severity": "HEALTH_WARN",
+    "summary": "One or more Placement Groups (PGs) have not been scrubbed recently. PGs are\nnormally scrubbed within an interval determined by\nosd_scrub_max_interval globally. This interval can be overridden on\nper-pool basis by changing the value of the variable\nsc",
+    "description": "One or more Placement Groups (PGs) have not been scrubbed recently. PGs are\nnormally scrubbed within an interval determined by\nosd_scrub_max_interval globally. This interval can be overridden on\nper-pool basis by changing the value of the variable\nscrub_max_interval. This health check is raised if a certain\npercentage (determined by mon_warn_pg_not_scrubbed_ratio) of the interval\nhas elapsed after the time the scrub was scheduled and no scrub has been\nperformed.\n\nPGs are scrubbed only if they are flagged as clean (which means that\nthey are to be cleaned, and not that they have been examined and found to be\nclean). Misplaced or degraded PGs will not be flagged as clean (see\nPG_AVAILABILITY and PG_DEGRADED above).\n\nTo manually initiate a scrub of a clean PG, run the following command:",
+    "resolution_commands": [
+      "ceph config set osd osd_max_scrubs 2",
+      "ceph pg dump | grep -v scrubbed",
+      "ceph osd set nodeep-scrub"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/rados/operations/health-checks/#pg-not-scrubbed",
+    "ceph_version": "17.2.8"
+  },
+  "PG_NOT_DEEP_SCRUBBED": {
+    "code": "PG_NOT_DEEP_SCRUBBED",
+    "heading": "PG_NOT_DEEP_SCRUBBED",
+    "severity": "HEALTH_WARN",
+    "summary": "One or more Placement Groups (PGs) have not been deep scrubbed recently. PGs\nare normally scrubbed every osd_deep_scrub_interval seconds at most.\nThis health check is raised if a certain percentage (determined by\nmon_warn_pg_not_deep_scrubbed_ratio) ",
+    "description": "One or more Placement Groups (PGs) have not been deep scrubbed recently. PGs\nare normally scrubbed every osd_deep_scrub_interval seconds at most.\nThis health check is raised if a certain percentage (determined by\nmon_warn_pg_not_deep_scrubbed_ratio) of the interval has elapsed\nafter the time the scrub was scheduled and no scrub has been performed.\n\nPGs will receive a deep scrub only if they are flagged as clean (which\nmeans that they are to be cleaned, and not that they have been examined and\nfound to be clean). Misplaced or degraded PGs might not be flagged as clean\n(see PG_AVAILABILITY and PG_DEGRADED above).\n\nThis document offers two methods of setting the value of\nosd_deep_scrub_interval. The first method listed here changes the\nvalue of osd_deep_scrub_interval globally. The second method listed\nhere changes the value of osd_deep scrub interval for OSDs and for\nthe Manager daemon.\n\nTo manually initiate a deep scrub of a clean PG, run the following command:\n\nceph pg deep-scrub <pgid>\n\nUnder certain conditions, the warning PGs not deep-scrubbed in time\nappears. This might be because the cluster contains many large PGs, which take\nlonger to deep-scrub. To remedy this situation, you must change the value of\nosd_deep_scrub_interval globally.\n\nConfirm that ceph health detail returns a pgs not deep-scrubbed in\ntime warning:\n# ceph health detail\nHEALTH_WARN 1161 pgs not deep-scrubbed in time\n[WRN] PG_NOT_DEEP_SCRUBBED: 1161 pgs not deep-scrubbed in time\npg 86.fff not deep-scrubbed since 2024-08-21T02:35:25.733187+0000\n\n\n\nChange osd_deep_scrub_interval globally:\nceph config set global osd_deep_scrub_interval 1209600\n\nConfirm that ceph health detail returns a pgs not deep-scrubbed in\ntime warning:\n\n# ceph health detail\nHEALTH_WARN 1161 pgs not deep-scrubbed in time\n[WRN] PG_NOT_DEEP_SCRUBBED: 1161 pgs not deep-scrubbed in time\npg 86.fff not deep-scrubbed since 2024-08-21T02:35:25.733187+0000\n\nChange osd_deep_scrub_interval globally:\n\nceph config set global osd_deep_scrub_interval 1209600\n\nThe above procedure was developed by Eugen Block in September of 2024.\n\nSee Eugen Block’s blog post for much more detail.\n\nSee Redmine tracker issue #44959.\n\nTo manually initiate a deep scrub of a clean PG, run the following command:\n\nceph pg deep-scrub <pgid>\n\nUnder certain conditions, the warning PGs not deep-scrubbed in time\nappears. This might be because the cluster contains many large PGs, which take\nlonger to deep-scrub. To remedy this situation, you must change the value of\nosd_deep_scrub_interval for OSDs and for the Manager daemon.\n\nConfirm that ceph health detail returns a pgs not deep-scrubbed in\ntime warning:\n# ceph health detail\nHEALTH_WARN 1161 pgs not deep-scrubbed in time\n[WRN] PG_NOT_DEEP_SCRUBBED: 1161 pgs not deep-scrubbed in time\npg 86.fff not deep-scrubbed since 2024-08-21T02:35:25.733187+0000\n\n\n\nChange the osd_deep_scrub_interval for OSDs:\nceph config set osd osd_deep_scrub_interval 1209600\n\nChange the osd_deep_scrub_interval for Managers:\nceph config set mgr osd_deep_scrub_interval 1209600\n\nConfirm that ceph health detail returns a pgs not deep-scrubbed in\ntime warning:\n\n# ceph health detail\nHEALTH_WARN 1161 pgs not deep-scrubbed in time\n[WRN] PG_NOT_DEEP_SCRUBBED: 1161 pgs not deep-scrubbed in time\npg 86.fff not deep-scrubbed since 2024-08-21T02:35:25.733187+0000\n\nChange the osd_deep_scrub_interval for OSDs:\n\nceph config set osd osd_deep_scrub_interval 1209600\n\nChange the osd_deep_scrub_interval for Managers:\n\nceph config set mgr osd_deep_scrub_interval 1209600\n\nThe above procedure was developed by Eugen Block in September of 2024.\n\nSee Eugen Block’s blog post for much more detail.\n\nSee Redmine tracker issue #44959.",
+    "resolution_commands": [
+      "ceph health detail"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/rados/operations/health-checks/#pg-not-deep-scrubbed",
+    "ceph_version": "17.2.8"
+  },
+  "PG_SLOW_SNAP_TRIMMING": {
+    "code": "PG_SLOW_SNAP_TRIMMING",
+    "heading": "PG_SLOW_SNAP_TRIMMING",
+    "severity": "HEALTH_WARN",
+    "summary": "The snapshot trim queue for one or more PGs has exceeded the configured warning\nthreshold. This alert indicates either that an extremely large number of\nsnapshots was recently deleted, or that OSDs are unable to trim snapshots\nquickly enough to keep ",
+    "description": "The snapshot trim queue for one or more PGs has exceeded the configured warning\nthreshold. This alert indicates either that an extremely large number of\nsnapshots was recently deleted, or that OSDs are unable to trim snapshots\nquickly enough to keep up with the rate of new snapshot deletions.\n\nThe warning threshold is determined by the mon_osd_snap_trim_queue_warn_on\noption (default: 32768).\n\nThis alert might be raised if OSDs are under excessive load and unable to keep\nup with their background work, or if the OSDs’ internal metadata database is\nheavily fragmented and unable to perform. The alert might also indicate some\nother performance issue with the OSDs.\n\nThe exact size of the snapshot trim queue is reported by the snaptrimq_len\nfield of ceph pg ls -f json-detail.",
+    "resolution_commands": [
+      "ceph config set osd osd_snap_trim_sleep 0",
+      "ceph config set osd osd_snap_trim_priority 5"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/rados/operations/health-checks/#pg-slow-snap-trimming",
+    "ceph_version": "17.2.8"
+  },
+  "INCORRECT_NUM_BUCKETS_STRETCH_MODE": {
+    "code": "INCORRECT_NUM_BUCKETS_STRETCH_MODE",
+    "heading": "INCORRECT_NUM_BUCKETS_STRETCH_MODE",
+    "severity": "HEALTH_WARN",
+    "summary": "Stretch mode currently only support 2 dividing buckets with OSDs, this warning\nsuggests that the number of dividing buckets is not equal to 2 after stretch\nmode is enabled.  You can expect unpredictable failures and MON assertions\nuntil the condition",
+    "description": "Stretch mode currently only support 2 dividing buckets with OSDs, this warning\nsuggests that the number of dividing buckets is not equal to 2 after stretch\nmode is enabled.  You can expect unpredictable failures and MON assertions\nuntil the condition is fixed.\n\nWe encourage you to fix this by removing additional dividing buckets or bump the\nnumber of dividing buckets to 2.",
+    "resolution_commands": [
+      "ceph osd tree",
+      "ceph osd crush dump",
+      "ceph health detail"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/rados/operations/health-checks/#incorrect-num-buckets-stretch-mode",
+    "ceph_version": "17.2.8"
+  },
+  "UNEVEN_WEIGHTS_STRETCH_MODE": {
+    "code": "UNEVEN_WEIGHTS_STRETCH_MODE",
+    "heading": "UNEVEN_WEIGHTS_STRETCH_MODE",
+    "severity": "HEALTH_WARN",
+    "summary": "The 2 dividing buckets must have equal weights when stretch mode is enabled.\nThis warning suggests that the 2 dividing buckets have uneven weights after\nstretch mode is enabled. This is not immediately fatal, however, you can expect\nCeph to be confus",
+    "description": "The 2 dividing buckets must have equal weights when stretch mode is enabled.\nThis warning suggests that the 2 dividing buckets have uneven weights after\nstretch mode is enabled. This is not immediately fatal, however, you can expect\nCeph to be confused when trying to process transitions between dividing buckets.\n\nWe encourage you to fix this by making the weights even on both dividing buckets.\nThis can be done by making sure the combined weight of the OSDs on each dividing\nbucket are the same.",
+    "resolution_commands": [
+      "ceph osd tree",
+      "ceph osd crush reweight <osd> <weight>"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/rados/operations/health-checks/#uneven-weights-stretch-mode",
+    "ceph_version": "17.2.8"
+  },
+  "NVMEOF_SINGLE_GATEWAY": {
+    "code": "NVMEOF_SINGLE_GATEWAY",
+    "heading": "NVMEOF_SINGLE_GATEWAY",
+    "severity": "HEALTH_WARN",
+    "summary": "One of the gateway group has only one gateway. This is not ideal because it\nmakes high availability (HA) impossible with a single gatway in a group. This\ncan lead to problems with failover and failback operations for the NVMeoF\ngateway.",
+    "description": "One of the gateway group has only one gateway. This is not ideal because it\nmakes high availability (HA) impossible with a single gatway in a group. This\ncan lead to problems with failover and failback operations for the NVMeoF\ngateway.\n\nIt’s recommended to have multiple NVMeoF gateways in a group.",
+    "resolution_commands": [
+      "ceph orch apply nvmeof <pool> --placement '2'",
+      "ceph orch ps --daemon-type nvmeof"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/rados/operations/health-checks/#nvmeof-single-gateway",
+    "ceph_version": "17.2.8"
+  },
+  "NVMEOF_GATEWAY_DOWN": {
+    "code": "NVMEOF_GATEWAY_DOWN",
+    "heading": "NVMEOF_GATEWAY_DOWN",
+    "severity": "HEALTH_WARN",
+    "summary": "Some of the gateways are in the GW_UNAVAILABLE state. If a NVMeoF daemon has\ncrashed, the daemon log file (found at /var/log/ceph/) may contain\ntroubleshooting information.",
+    "description": "Some of the gateways are in the GW_UNAVAILABLE state. If a NVMeoF daemon has\ncrashed, the daemon log file (found at /var/log/ceph/) may contain\ntroubleshooting information.",
+    "resolution_commands": [
+      "ceph orch ps --daemon-type nvmeof",
+      "ceph orch restart nvmeof"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/rados/operations/health-checks/#nvmeof-gateway-down",
+    "ceph_version": "17.2.8"
+  },
+  "RECENT_CRASH": {
+    "code": "RECENT_CRASH",
+    "heading": "RECENT_CRASH",
+    "severity": "HEALTH_WARN",
+    "summary": "One or more Ceph daemons have crashed recently, and the crash(es) have not yet\nbeen acknowledged and archived by the administrator. This alert might indicate\na software bug, a hardware problem (for example, a failing disk), or some other\nproblem.",
+    "description": "One or more Ceph daemons have crashed recently, and the crash(es) have not yet\nbeen acknowledged and archived by the administrator. This alert might indicate\na software bug, a hardware problem (for example, a failing disk), or some other\nproblem.\n\nTo list recent crashes, run the following command:\n\nceph crash ls-new\n\nTo examine information about a specific crash, run the following command:\n\nceph crash info <crash-id>\n\nTo silence this alert, you can archive the crash (perhaps after the crash\nhas been examined by an administrator) by running the following command:\n\nceph crash archive <crash-id>\n\nSimilarly, to archive all recent crashes, run the following command:\n\nceph crash archive-all\n\nArchived crashes will still be visible by running the command ceph crash\nls, but not by running the command ceph crash ls-new.\n\nThe time period that is considered recent is determined by the option\nmgr/crash/warn_recent_interval (default: two weeks).\n\nTo entirely disable this alert, run the following command:\n\nceph config set mgr/crash/warn_recent_interval 0",
+    "resolution_commands": [
+      "ceph crash ls-new",
+      "ceph crash info <crash-id>",
+      "ceph crash archive <crash-id>",
+      "ceph crash archive-all",
+      "ceph crash",
+      "ceph config set mgr/crash/warn_recent_interval 0"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/rados/operations/health-checks/#recent-crash",
+    "ceph_version": "17.2.8"
+  },
+  "RECENT_MGR_MODULE_CRASH": {
+    "code": "RECENT_MGR_MODULE_CRASH",
+    "heading": "RECENT_MGR_MODULE_CRASH",
+    "severity": "HEALTH_WARN",
+    "summary": "One or more ceph-mgr modules have crashed recently, and the crash(es) have\nnot yet been acknowledged and archived by the administrator.  This alert\nusually indicates a software bug in one of the software modules that are\nrunning inside the ceph-mgr d",
+    "description": "One or more ceph-mgr modules have crashed recently, and the crash(es) have\nnot yet been acknowledged and archived by the administrator.  This alert\nusually indicates a software bug in one of the software modules that are\nrunning inside the ceph-mgr daemon. The module that experienced the problem\nmight be disabled as a result, but other modules are unaffected and continue to\nfunction as expected.\n\nAs with the RECENT_CRASH health check, a specific crash can be inspected by\nrunning the following command:\n\nceph crash info <crash-id>\n\nTo silence this alert, you can archive the crash (perhaps after the crash has\nbeen examined by an administrator) by running the following command:\n\nceph crash archive <crash-id>\n\nSimilarly, to archive all recent crashes, run the following command:\n\nceph crash archive-all\n\nArchived crashes will still be visible by running the command ceph crash ls\nbut not by running the command ceph crash ls-new.\n\nThe time period that is considered recent is determined by the option\nmgr/crash/warn_recent_interval (default: two weeks).\n\nTo entirely disable this alert, run the following command:\n\nceph config set mgr/crash/warn_recent_interval 0",
+    "resolution_commands": [
+      "ceph crash info <crash-id>",
+      "ceph crash archive <crash-id>",
+      "ceph crash archive-all",
+      "ceph crash ls",
+      "ceph crash ls-new",
+      "ceph config set mgr/crash/warn_recent_interval 0"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/rados/operations/health-checks/#recent-mgr-module-crash",
+    "ceph_version": "17.2.8"
+  },
+  "TELEMETRY_CHANGED": {
+    "code": "TELEMETRY_CHANGED",
+    "heading": "TELEMETRY_CHANGED",
+    "severity": "HEALTH_WARN",
+    "summary": "Telemetry has been enabled, but because the contents of the telemetry report\nhave changed in the meantime, telemetry reports will not be sent.",
+    "description": "Telemetry has been enabled, but because the contents of the telemetry report\nhave changed in the meantime, telemetry reports will not be sent.\n\nCeph developers occasionally revise the telemetry feature to include new and\nuseful information, or to remove information found to be useless or sensitive.\nIf any new information is included in the report, Ceph requires the\nadministrator to re-enable telemetry. This requirement ensures that the\nadministrator has an opportunity to (re)review the information that will be\nshared.\n\nTo review the contents of the telemetry report, run the following command:\n\nceph telemetry show\n\nNote that the telemetry report consists of several channels that may be\nindependently enabled or disabled. For more information, see Telemetry Module.\n\nTo re-enable telemetry (and silence the alert), run the following command:\n\nceph telemetry on\n\nTo disable telemetry (and silence the alert), run the following command:\n\nceph telemetry off",
+    "resolution_commands": [
+      "ceph telemetry show",
+      "ceph telemetry on",
+      "ceph telemetry off"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/rados/operations/health-checks/#telemetry-changed",
+    "ceph_version": "17.2.8"
+  },
+  "AUTH_BAD_CAPS": {
+    "code": "AUTH_BAD_CAPS",
+    "heading": "AUTH_BAD_CAPS",
+    "severity": "HEALTH_WARN",
+    "summary": "One or more auth users have capabilities that cannot be parsed by the monitors.\nAs a general rule, this alert indicates that there are one or more daemon types\nthat the user is not authorized to use to perform any action.",
+    "description": "One or more auth users have capabilities that cannot be parsed by the monitors.\nAs a general rule, this alert indicates that there are one or more daemon types\nthat the user is not authorized to use to perform any action.\n\nThis alert is most likely to be raised after an upgrade if (1) the capabilities\nwere set with an older version of Ceph that did not properly validate the\nsyntax of those capabilities, or if (2) the syntax of the capabilities has\nchanged.\n\nTo remove the user(s) in question, run the following command:\n\nceph auth rm <entity-name>\n\n(This resolves the health check, but it prevents clients from being able to\nauthenticate as the removed user.)\n\nAlternatively, to update the capabilities for the user(s), run the following\ncommand:\n\nceph auth <entity-name> <daemon-type> <caps> [<daemon-type> <caps> ...]\n\nFor more information about auth capabilities, see User Management.",
+    "resolution_commands": [
+      "ceph auth rm <entity-name>",
+      "ceph auth <entity-name> <daemon-type> <caps> [<daemon-type> <caps> ...]"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/rados/operations/health-checks/#auth-bad-caps",
+    "ceph_version": "17.2.8"
+  },
+  "OSD_NO_DOWN_OUT_INTERVAL": {
+    "code": "OSD_NO_DOWN_OUT_INTERVAL",
+    "heading": "OSD_NO_DOWN_OUT_INTERVAL",
+    "severity": "HEALTH_WARN",
+    "summary": "The mon_osd_down_out_interval option is set to zero, which means that the\nsystem does not automatically perform any repair or healing operations when an\nOSD fails. Instead, an administrator an external orchestrator must manually\nmark “down” OSDs as o",
+    "description": "The mon_osd_down_out_interval option is set to zero, which means that the\nsystem does not automatically perform any repair or healing operations when an\nOSD fails. Instead, an administrator an external orchestrator must manually\nmark “down” OSDs as out (by running ceph osd out <osd-id>) in order to\ntrigger recovery.\n\nThis option is normally set to five or ten minutes, which should be enough time\nfor a host to power-cycle or reboot.\n\nTo silence this alert, set mon_warn_on_osd_down_out_interval_zero to\nfalse by running the following command:\n\nceph config global mon mon_warn_on_osd_down_out_interval_zero false",
+    "resolution_commands": [
+      "ceph osd out <osd-id>) in order to",
+      "ceph config global mon mon_warn_on_osd_down_out_interval_zero false"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/rados/operations/health-checks/#osd-no-down-out-interval",
+    "ceph_version": "17.2.8"
+  },
+  "DASHBOARD_DEBUG": {
+    "code": "DASHBOARD_DEBUG",
+    "heading": "DASHBOARD_DEBUG",
+    "severity": "HEALTH_WARN",
+    "summary": "The Dashboard debug mode is enabled. This means that if there is an error while\nprocessing a REST API request, the HTTP error response will contain a Python\ntraceback. This mode should be disabled in production environments because such\na traceback m",
+    "description": "The Dashboard debug mode is enabled. This means that if there is an error while\nprocessing a REST API request, the HTTP error response will contain a Python\ntraceback. This mode should be disabled in production environments because such\na traceback might contain and expose sensitive information.\n\nTo disable the debug mode, run the following command:\n\nceph dashboard debug disable",
+    "resolution_commands": [
+      "ceph dashboard debug disable"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/rados/operations/health-checks/#dashboard-debug",
+    "ceph_version": "17.2.8"
+  },
+  "DAEMON_REPORTED_HEALTH_CHECKS": {
+    "code": "DAEMON_REPORTED_HEALTH_CHECKS",
+    "heading": "Daemon-reported health checks",
+    "severity": "HEALTH_WARN",
+    "summary": "MDS daemons can identify a variety of unwanted conditions, and\nindicate these to the operator in the output of ceph status.\nThese conditions have human readable messages, and additionally\na unique code starting with MDS_.",
+    "description": "MDS daemons can identify a variety of unwanted conditions, and\nindicate these to the operator in the output of ceph status.\nThese conditions have human readable messages, and additionally\na unique code starting with MDS_.\n\nceph health detail shows the details of the conditions. Following\nis a typical health report from a cluster experiencing MDS related\nperformance issues:\n\n$ ceph health detail\nHEALTH_WARN 1 MDSs report slow metadata IOs; 1 MDSs report slow requests\nMDS_SLOW_METADATA_IO 1 MDSs report slow metadata IOs\n   mds.fs-01(mds.0): 3 slow metadata IOs are blocked > 30 secs, oldest blocked for 51123 secs\nMDS_SLOW_REQUEST 1 MDSs report slow requests\n   mds.fs-01(mds.0): 5 slow requests are blocked > 30 secs\n\nWhere, for instance, MDS_SLOW_REQUEST is the unique code representing the\ncondition where requests are taking long time to complete. And the following\ndescription shows its severity and the MDS daemons which are serving these\nslow requests.\n\nThis page lists the health checks raised by MDS daemons. For the checks from\nother daemons, please see Health checks.\n\n“Behind on trimming…”\n\nCephFS maintains a metadata journal that is divided into\nlog segments.  The length of journal (in number of segments) is controlled\nby the setting mds_log_max_segments, and when the number of segments\nexceeds that setting the MDS starts writing back metadata so that it\ncan remove (trim) the oldest segments.  If this writeback is happening\ntoo slowly, or a software bug is preventing trimming, then this health\nmessage may appear.  The threshold for this message to appear is controlled by\nthe config option mds_log_warn_factor, the default is 2.0.\n\n“Client name failing to respond to capability release”\n\nCephFS clients are issued capabilities by the MDS, which\nare like locks.  Sometimes, for example when another client needs access,\nthe MDS will request clients release their capabilities.  If the client\nis unresponsive or buggy, it might fail to do so promptly or fail to do\nso at all.  This message appears if a client has taken longer than\nsession_timeout (default 60s) to comply.\n\n“Client name failing to respond to cache pressure”\n\nClients maintain a metadata cache.  Items (such as inodes) in the\nclient cache are also pinned in the MDS cache, so when the MDS needs to shrink\nits cache (to stay within mds_cache_memory_limit), it sends messages to\nclients to shrink their caches too.  If the client is unresponsive or buggy,\nthis can prevent the MDS from properly staying within its cache limits and it\nmay eventually run out of memory and crash.  This message appears if a client\nhas failed to release more than\nmds_recall_warning_threshold capabilities (decaying with a half-life of\nmds_recall_max_decay_rate) within the last\nmds_recall_warning_decay_rate second.\n\n“Client name failing to advance its oldest client/flush tid”\n\nThe CephFS client-MDS protocol uses a field called the\noldest tid to inform the MDS of which client requests are fully\ncomplete and may therefore be forgotten about by the MDS.  If a buggy\nclient is failing to advance this field, then the MDS may be prevented\nfrom properly cleaning up resources used by client requests.  This message\nappears if a client appears to have more than max_completed_requests\n(default 100000) requests that are complete on the MDS side but haven’t\nyet been accounted for in the client’s oldest tid value. The last tid\nused by the MDS to trim completed client requests (or flush) is included\nas part of session ls (or client ls) command as a debug aid.\n\n“Metadata damage detected”\n\nCorrupt or missing metadata was encountered when reading\nfrom the metadata pool.  This message indicates that the damage was\nsufficiently isolated for the MDS to continue operating, although\nclient accesses to the damaged subtree will return IO errors.  Use\nthe damage ls admin socket command to get more detail on the damage.\nThis message appears as soon as any damage is encountered.\n\n“MDS in read-only mode”\n\nThe MDS has gone into readonly mode and will return EROFS\nerror codes to client operations that attempt to modify any metadata.  The\nMDS will go into readonly mode if it encounters a write error while\nwriting to the metadata pool, or if forced to by an administrator using\nthe force_readonly admin socket command.\n\n“N slow requests are blocked”\n\nOne or more client requests have not been completed promptly,\nindicating that the MDS is either running very slowly, or that the RADOS\ncluster is not acknowledging journal writes promptly, or that there is a bug.\nUse the ops admin socket command to list outstanding metadata operations.\nThis message appears if any client requests have taken longer than\nmds_op_complaint_time (default 30s).\n\n“Too many inodes in cache”\n\nThe MDS is not succeeding in trimming its cache to comply with the\nlimit set by the administrator.  If the MDS cache becomes too large, the daemon\nmay exhaust available memory and crash.  By default, this message appears if\nthe actual cache size (in memory) is at least 50% greater than\nmds_cache_memory_limit (default 4GB). Modify mds_health_cache_threshold\nto set the warning ratio.\n\n“Some MDS ranks do not have standby replacements”\n\nNormally, a failed MDS rank will be replaced by a standby MDS. This situation\nis transient and is not considered critical. However, if there are no standby\nMDSs available to replace an active MDS rank, this health warning is generated.\n\n“Insufficient number of available standby(-replay) MDS daemons than configured”\n\nThe minimum number of standby(-replay) MDS daemons can be configured by setting\nstandby_count_wanted configuration variable. This health warning is generated\nwhen the configured value mismatches the number of standby(-replay) MDS daemons\navailable.\n\n“Some MDS ranks have been marked failed or damaged”\n\nWhen one or more MDS rank ends up in failed or damaged state due to\nan unrecoverable error. The file system may be partially or fully\nunavailable when one (or more) ranks are offline.\n\n“Number of active ranks are less than configured number of maximum MDSs”\n\nThe maximum number of MDS ranks can be configured by setting max_mds\nconfiguration variable. This health warning is generated when the number\nof MDS ranks falls below this configured value.\n\n“None of the MDS ranks are available (file system offline)”\n\nAll MDS ranks are unavailable resulting in the file system to be completely\noffline.\n\n“Client ID is laggy; not evicted because some OSD(s) is/are laggy”\n\nIf OSD(s) is laggy (due to certain conditions like network cut-off, etc)\nthen it might make clients laggy(session might get idle or cannot flush\ndirty data for cap revokes). If defer_client_eviction_on_laggy_osds is\nset to true (default true), client eviction will not take place and thus\nthis health warning will be generated.",
+    "resolution_commands": [
+      "ceph health detail"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/cephfs/health-messages/#daemon-reported-health-checks",
+    "ceph_version": "17.2.8"
+  },
+  "MDS_TRIM": {
+    "code": "MDS_TRIM",
+    "heading": "MDS_TRIM",
+    "severity": "HEALTH_WARN",
+    "summary": "“Behind on trimming…”",
+    "description": "“Behind on trimming…”\n\nCephFS maintains a metadata journal that is divided into\nlog segments.  The length of journal (in number of segments) is controlled\nby the setting mds_log_max_segments, and when the number of segments\nexceeds that setting the MDS starts writing back metadata so that it\ncan remove (trim) the oldest segments.  If this writeback is happening\ntoo slowly, or a software bug is preventing trimming, then this health\nmessage may appear.  The threshold for this message to appear is controlled by\nthe config option mds_log_warn_factor, the default is 2.0.",
+    "resolution_commands": [
+      "ceph daemon mds.<id> cache status",
+      "ceph config set mds mds_cache_memory_limit <bytes>"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/cephfs/health-messages/#mds-trim",
+    "ceph_version": "17.2.8"
+  },
+  "MDS_HEALTH_CLIENT_LATE_RELEASE": {
+    "code": "MDS_HEALTH_CLIENT_LATE_RELEASE",
+    "heading": "MDS_HEALTH_CLIENT_LATE_RELEASE, MDS_HEALTH_CLIENT_LATE_RELEASE_MANY",
+    "severity": "HEALTH_WARN",
+    "summary": "“Client name failing to respond to capability release”",
+    "description": "“Client name failing to respond to capability release”\n\nCephFS clients are issued capabilities by the MDS, which\nare like locks.  Sometimes, for example when another client needs access,\nthe MDS will request clients release their capabilities.  If the client\nis unresponsive or buggy, it might fail to do so promptly or fail to do\nso at all.  This message appears if a client has taken longer than\nsession_timeout (default 60s) to comply.",
+    "resolution_commands": [
+      "ceph daemon mds.<id> session ls",
+      "ceph daemon mds.<id> client evict id=<id>"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/cephfs/health-messages/#mds-health-client-late-release-mds-health-client-late-release-many",
+    "ceph_version": "17.2.8"
+  },
+  "MDS_CLIENT_RECALL": {
+    "code": "MDS_CLIENT_RECALL",
+    "heading": "MDS_CLIENT_RECALL, MDS_HEALTH_CLIENT_RECALL_MANY",
+    "severity": "HEALTH_WARN",
+    "summary": "“Client name failing to respond to cache pressure”",
+    "description": "“Client name failing to respond to cache pressure”\n\nClients maintain a metadata cache.  Items (such as inodes) in the\nclient cache are also pinned in the MDS cache, so when the MDS needs to shrink\nits cache (to stay within mds_cache_memory_limit), it sends messages to\nclients to shrink their caches too.  If the client is unresponsive or buggy,\nthis can prevent the MDS from properly staying within its cache limits and it\nmay eventually run out of memory and crash.  This message appears if a client\nhas failed to release more than\nmds_recall_warning_threshold capabilities (decaying with a half-life of\nmds_recall_max_decay_rate) within the last\nmds_recall_warning_decay_rate second.",
+    "resolution_commands": [
+      "ceph daemon mds.<id> session ls",
+      "ceph fs status",
+      "ceph daemon mds.<id> dump_ops_in_flight"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/cephfs/health-messages/#mds-client-recall-mds-health-client-recall-many",
+    "ceph_version": "17.2.8"
+  },
+  "MDS_CLIENT_OLDEST_TID": {
+    "code": "MDS_CLIENT_OLDEST_TID",
+    "heading": "MDS_CLIENT_OLDEST_TID, MDS_CLIENT_OLDEST_TID_MANY",
+    "severity": "HEALTH_WARN",
+    "summary": "“Client name failing to advance its oldest client/flush tid”",
+    "description": "“Client name failing to advance its oldest client/flush tid”\n\nThe CephFS client-MDS protocol uses a field called the\noldest tid to inform the MDS of which client requests are fully\ncomplete and may therefore be forgotten about by the MDS.  If a buggy\nclient is failing to advance this field, then the MDS may be prevented\nfrom properly cleaning up resources used by client requests.  This message\nappears if a client appears to have more than max_completed_requests\n(default 100000) requests that are complete on the MDS side but haven’t\nyet been accounted for in the client’s oldest tid value. The last tid\nused by the MDS to trim completed client requests (or flush) is included\nas part of session ls (or client ls) command as a debug aid.",
+    "resolution_commands": [
+      "ceph daemon mds.<id> session ls",
+      "ceph daemon mds.<id> client evict id=<id>"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/cephfs/health-messages/#mds-client-oldest-tid-mds-client-oldest-tid-many",
+    "ceph_version": "17.2.8"
+  },
+  "MDS_DAMAGE": {
+    "code": "MDS_DAMAGE",
+    "heading": "MDS_DAMAGE",
+    "severity": "HEALTH_WARN",
+    "summary": "“Metadata damage detected”",
+    "description": "“Metadata damage detected”\n\nCorrupt or missing metadata was encountered when reading\nfrom the metadata pool.  This message indicates that the damage was\nsufficiently isolated for the MDS to continue operating, although\nclient accesses to the damaged subtree will return IO errors.  Use\nthe damage ls admin socket command to get more detail on the damage.\nThis message appears as soon as any damage is encountered.",
+    "resolution_commands": [
+      "ceph fs status",
+      "ceph health detail",
+      "ceph fs damage ls"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/cephfs/health-messages/#mds-damage",
+    "ceph_version": "17.2.8"
+  },
+  "MDS_HEALTH_READ_ONLY": {
+    "code": "MDS_HEALTH_READ_ONLY",
+    "heading": "MDS_HEALTH_READ_ONLY",
+    "severity": "HEALTH_WARN",
+    "summary": "“MDS in read-only mode”",
+    "description": "“MDS in read-only mode”\n\nThe MDS has gone into readonly mode and will return EROFS\nerror codes to client operations that attempt to modify any metadata.  The\nMDS will go into readonly mode if it encounters a write error while\nwriting to the metadata pool, or if forced to by an administrator using\nthe force_readonly admin socket command.",
+    "resolution_commands": [
+      "ceph fs set <fs-name> joinable true",
+      "ceph mds repaired <rank>"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/cephfs/health-messages/#mds-health-read-only",
+    "ceph_version": "17.2.8"
+  },
+  "MDS_SLOW_REQUEST": {
+    "code": "MDS_SLOW_REQUEST",
+    "heading": "MDS_SLOW_REQUEST",
+    "severity": "HEALTH_WARN",
+    "summary": "“N slow requests are blocked”",
+    "description": "“N slow requests are blocked”\n\nOne or more client requests have not been completed promptly,\nindicating that the MDS is either running very slowly, or that the RADOS\ncluster is not acknowledging journal writes promptly, or that there is a bug.\nUse the ops admin socket command to list outstanding metadata operations.\nThis message appears if any client requests have taken longer than\nmds_op_complaint_time (default 30s).",
+    "resolution_commands": [
+      "ceph daemon mds.<id> dump_ops_in_flight",
+      "ceph daemon mds.<id> perf dump",
+      "ceph fs status"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/cephfs/health-messages/#mds-slow-request",
+    "ceph_version": "17.2.8"
+  },
+  "MDS_CACHE_OVERSIZED": {
+    "code": "MDS_CACHE_OVERSIZED",
+    "heading": "MDS_CACHE_OVERSIZED",
+    "severity": "HEALTH_WARN",
+    "summary": "“Too many inodes in cache”",
+    "description": "“Too many inodes in cache”\n\nThe MDS is not succeeding in trimming its cache to comply with the\nlimit set by the administrator.  If the MDS cache becomes too large, the daemon\nmay exhaust available memory and crash.  By default, this message appears if\nthe actual cache size (in memory) is at least 50% greater than\nmds_cache_memory_limit (default 4GB). Modify mds_health_cache_threshold\nto set the warning ratio.",
+    "resolution_commands": [
+      "ceph config set mds mds_cache_memory_limit <bytes>",
+      "ceph daemon mds.<id> cache status"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/cephfs/health-messages/#mds-cache-oversized",
+    "ceph_version": "17.2.8"
+  },
+  "FS_WITH_FAILED_MDS": {
+    "code": "FS_WITH_FAILED_MDS",
+    "heading": "FS_WITH_FAILED_MDS",
+    "severity": "HEALTH_WARN",
+    "summary": "“Some MDS ranks do not have standby replacements”",
+    "description": "“Some MDS ranks do not have standby replacements”\n\nNormally, a failed MDS rank will be replaced by a standby MDS. This situation\nis transient and is not considered critical. However, if there are no standby\nMDSs available to replace an active MDS rank, this health warning is generated.",
+    "resolution_commands": [
+      "ceph fs status",
+      "ceph mds fail <id>",
+      "ceph orch restart mds"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/cephfs/health-messages/#fs-with-failed-mds",
+    "ceph_version": "17.2.8"
+  },
+  "MDS_INSUFFICIENT_STANDBY": {
+    "code": "MDS_INSUFFICIENT_STANDBY",
+    "heading": "MDS_INSUFFICIENT_STANDBY",
+    "severity": "HEALTH_WARN",
+    "summary": "“Insufficient number of available standby(-replay) MDS daemons than configured”",
+    "description": "“Insufficient number of available standby(-replay) MDS daemons than configured”\n\nThe minimum number of standby(-replay) MDS daemons can be configured by setting\nstandby_count_wanted configuration variable. This health warning is generated\nwhen the configured value mismatches the number of standby(-replay) MDS daemons\navailable.",
+    "resolution_commands": [
+      "ceph fs status",
+      "ceph orch apply mds <fs-name> --placement '<count>'",
+      "ceph fs set <fs-name> standby_count_wanted <count>"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/cephfs/health-messages/#mds-insufficient-standby",
+    "ceph_version": "17.2.8"
+  },
+  "FS_DEGRADED": {
+    "code": "FS_DEGRADED",
+    "heading": "FS_DEGRADED",
+    "severity": "HEALTH_WARN",
+    "summary": "“Some MDS ranks have been marked failed or damaged”",
+    "description": "“Some MDS ranks have been marked failed or damaged”\n\nWhen one or more MDS rank ends up in failed or damaged state due to\nan unrecoverable error. The file system may be partially or fully\nunavailable when one (or more) ranks are offline.",
+    "resolution_commands": [
+      "ceph fs status",
+      "ceph mds stat",
+      "ceph orch apply mds <fs-name>"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/cephfs/health-messages/#fs-degraded",
+    "ceph_version": "17.2.8"
+  },
+  "MDS_UP_LESS_THAN_MAX": {
+    "code": "MDS_UP_LESS_THAN_MAX",
+    "heading": "MDS_UP_LESS_THAN_MAX",
+    "severity": "HEALTH_WARN",
+    "summary": "“Number of active ranks are less than configured number of maximum MDSs”",
+    "description": "“Number of active ranks are less than configured number of maximum MDSs”\n\nThe maximum number of MDS ranks can be configured by setting max_mds\nconfiguration variable. This health warning is generated when the number\nof MDS ranks falls below this configured value.",
+    "resolution_commands": [
+      "ceph fs status",
+      "ceph orch apply mds <fs-name> --placement '<count>'",
+      "ceph fs set <fs-name> max_mds <count>"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/cephfs/health-messages/#mds-up-less-than-max",
+    "ceph_version": "17.2.8"
+  },
+  "MDS_ALL_DOWN": {
+    "code": "MDS_ALL_DOWN",
+    "heading": "MDS_ALL_DOWN",
+    "severity": "HEALTH_WARN",
+    "summary": "“None of the MDS ranks are available (file system offline)”",
+    "description": "“None of the MDS ranks are available (file system offline)”\n\nAll MDS ranks are unavailable resulting in the file system to be completely\noffline.",
+    "resolution_commands": [
+      "ceph fs status",
+      "ceph orch apply mds <fs-name>",
+      "ceph orch restart mds",
+      "systemctl restart ceph-mds@$(hostname)"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/cephfs/health-messages/#mds-all-down",
+    "ceph_version": "17.2.8"
+  },
+  "MDS_CLIENTS_LAGGY": {
+    "code": "MDS_CLIENTS_LAGGY",
+    "heading": "MDS_CLIENTS_LAGGY",
+    "severity": "HEALTH_WARN",
+    "summary": "“Client ID is laggy; not evicted because some OSD(s) is/are laggy”",
+    "description": "“Client ID is laggy; not evicted because some OSD(s) is/are laggy”\n\nIf OSD(s) is laggy (due to certain conditions like network cut-off, etc)\nthen it might make clients laggy(session might get idle or cannot flush\ndirty data for cap revokes). If defer_client_eviction_on_laggy_osds is\nset to true (default true), client eviction will not take place and thus\nthis health warning will be generated.",
+    "resolution_commands": [
+      "ceph daemon mds.<id> session ls",
+      "ceph daemon mds.<id> client evict id=<id>",
+      "ceph fs status"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/cephfs/health-messages/#mds-clients-laggy",
+    "ceph_version": "17.2.8"
+  },
+  "OSD_OUT": {
+    "code": "OSD_OUT",
+    "heading": "OSD_OUT",
+    "severity": "HEALTH_WARN",
+    "summary": "One or more OSDs are marked out of the CRUSH map.",
+    "description": "One or more OSDs are marked out of the CRUSH map.",
+    "resolution_commands": [
+      "ceph osd tree",
+      "ceph osd in <id>"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/rados/operations/health-checks/#osd-out",
+    "ceph_version": "17.2.8"
+  },
+  "POOL_NO_REDUNDANCY": {
+    "code": "POOL_NO_REDUNDANCY",
+    "heading": "POOL_NO_REDUNDANCY",
+    "severity": "HEALTH_WARN",
+    "summary": "Pool is configured with size=1 and has no data replication.",
+    "description": "Pool is configured with size=1 and has no data replication.",
+    "resolution_commands": [
+      "ceph osd pool set <pool> size 2",
+      "ceph osd pool set <pool> min_size 1"
+    ],
+    "source_url": "https://docs.ceph.com/en/quincy/rados/operations/health-checks/#pool-no-redundancy",
+    "ceph_version": "17.2.8"
+  }
+}
