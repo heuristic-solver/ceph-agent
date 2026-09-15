@@ -144,6 +144,30 @@ class SSHExecutor:
             logger.warning(f"SFTP upload failed for {local_path} -> {remote_path}: {e}")
             return False
 
+    def upload_path(self, local_path: str, remote_path: str) -> bool:
+        """Uploads a local file or directory tree to the remote Ceph VM."""
+        try:
+            if os.path.isfile(local_path):
+                return self.upload_file(local_path, remote_path)
+            elif os.path.isdir(local_path):
+                import tarfile
+                import tempfile
+                tar_name = f"{os.path.basename(os.path.normpath(local_path))}.tar"
+                tmp_dir = tempfile.gettempdir()
+                local_tar = os.path.join(tmp_dir, tar_name)
+                with tarfile.open(local_tar, "w") as tar:
+                    tar.add(local_path, arcname=os.path.basename(os.path.normpath(local_path)))
+                remote_tar = f"/tmp/{tar_name}"
+                if self.upload_file(local_tar, remote_tar):
+                    self.execute(f"tar -xf {remote_tar} -C /tmp/ && rm -f {remote_tar}")
+                    if os.path.exists(local_tar):
+                        os.remove(local_tar)
+                    return True
+            return False
+        except Exception as e:
+            logger.warning(f"Upload path failed for {local_path} -> {remote_path}: {e}")
+            return False
+
     def close(self):
         """Closes the active SSH connection."""
         if self._client:
@@ -166,6 +190,10 @@ class MockSSHExecutor(SSHExecutor):
 
     def upload_file(self, local_path: str, remote_path: str) -> bool:
         """Mock upload always succeeds."""
+        return True
+
+    def upload_path(self, local_path: str, remote_path: str) -> bool:
+        """Mock upload path always succeeds."""
         return True
 
     def test_connectivity(self, timeout: int = 10) -> Tuple[bool, str, Dict[str, Any]]:

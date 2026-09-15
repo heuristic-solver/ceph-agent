@@ -18,10 +18,8 @@ from typing import Optional, Dict, Any, List
 from ceph_classifier.classifier import WorkflowClassifier
 from ceph_classifier.models import ClassificationResult
 from ceph_agent.core.recipes import get_workflow_recipe, ExecutionStep
-from ceph_agent.core.tracker import ExecutionTracker, TaskState
 from ceph_agent.core.ssh_executor import SSHExecutor, MockSSHExecutor, ExecutionResult
-from ceph_agent.core.recipes import get_workflow_recipe, ExecutionStep
-from ceph_agent.core.memory import WorkingMemory, EpisodicMemory
+from ceph_agent.core.tracker import ExecutionTracker, TaskState, TaskSummary
 from ceph_agent.knowledge.retriever import RemediationRetriever
 from ceph_agent.knowledge.schema import QueryContext, RemediationProposal
 
@@ -30,12 +28,12 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class AgentExecutionSummary:
-    """End-to-end task execution report."""
+    """Final output report of the autonomous agent execution."""
     task_id: str
     payload_path: str
     target_workflow: str
-    target_destination: Optional[str]
-    status: str
+    target_destination: str
+    status: str  # 'SUCCESS' | 'FAILED' | 'AWAITING_CONFIRMATION'
     iteration_count: int
     steps_total: int
     steps_completed: int
@@ -67,14 +65,12 @@ class CephSelfHealingAgent:
         classifier: Optional[WorkflowClassifier] = None,
         retriever: Optional[RemediationRetriever] = None,
         executor: Optional[SSHExecutor] = None,
-        tracker: Optional[ExecutionTracker] = None,
-        episodic_memory: Optional[EpisodicMemory] = None
+        tracker: Optional[ExecutionTracker] = None
     ):
         self.classifier = classifier or WorkflowClassifier()
         self.retriever = retriever or RemediationRetriever()
         self.executor = executor or SSHExecutor()
         self.tracker = tracker or ExecutionTracker()
-        self.episodic_memory = episodic_memory or EpisodicMemory()
 
     def run(
         self,
@@ -147,20 +143,6 @@ class CephSelfHealingAgent:
         )
         self.tracker.update_task_state(task_id, TaskState.RUNNING)
 
-        # ── Initialize Working Memory Blackboard ─────────────────────────────
-        working_memory = WorkingMemory()
-        working_memory.set_slot("payload", os.path.basename(payload_path))
-        if classification.target_destination:
-            working_memory.set_slot("destination", classification.target_destination)
-            if "/" in classification.target_destination:
-                p, img = classification.target_destination.split("/", 1)
-                working_memory.set_slot("pool", p)
-                working_memory.set_slot("image", img)
-            elif classification.target_destination.startswith("s3://"):
-                b = classification.target_destination.replace("s3://", "").split("/")[0]
-                working_memory.set_slot("bucket", b)
-                working_memory.set_slot("user", "agent_s3_user")
-
         # ── Step 2: Load Workflow Recipe DAG ─────────────────────────────────
         recipe: List[ExecutionStep] = get_workflow_recipe(
             workflow=classification.target_workflow,
@@ -172,11 +154,15 @@ class CephSelfHealingAgent:
         for i, step in enumerate(recipe, 1):
             print(f"  {i}. [{step.name}] {step.description}")
 
-        # Stream payload file to remote VM if live connection
-        if os.path.isfile(payload_path) and not isinstance(self.executor, MockSSHExecutor) and hasattr(self.executor, "upload_file"):
-            remote_tmp = f"/tmp/{os.path.basename(payload_path)}"
-            if self.executor.upload_file(payload_path, remote_tmp):
-                print(f"  [+] SFTP Ingested: {payload_path} -> {remote_tmp} on Ceph VM ({os.path.getsize(payload_path)} bytes)")
+        # Stream payload file/directory to remote VM if live connection
+        if os.path.exists(payload_path) and not isinstance(self.executor, MockSSHExecutor):
+            remote_tmp = f"/tmp/{os.path.basename(os.path.normpath(payload_path))}"
+            if hasattr(self.executor, "upload_path"):
+                if self.executor.upload_path(payload_path, remote_tmp):
+                    print(f"  [+] Ingested Payload: {payload_path} -> {remote_tmp} on Ceph VM")
+            elif hasattr(self.executor, "upload_file") and os.path.isfile(payload_path):
+                if self.executor.upload_file(payload_path, remote_tmp):
+                    print(f"  [+] Ingested Payload: {payload_path} -> {remote_tmp} on Ceph VM ({os.path.getsize(payload_path)} bytes)")
 
         # ── Step 3: Closed-Loop Execution with Self-Healing ──────────────────
         print("\n[Stage 3: Autonomous Execution & State Machine]")
@@ -192,15 +178,6 @@ class CephSelfHealingAgent:
                 exec_result: ExecutionResult = self.executor.execute(
                     cmd=step.command,
                     timeout=step.timeout_sec
-                )
-
-                working_memory.record_attempt(
-                    step_name=step.name,
-                    attempt_idx=iteration_count,
-                    command=step.command,
-                    exit_code=exec_result.exit_code,
-                    stdout=exec_result.stdout,
-                    stderr=exec_result.stderr
                 )
 
                 if exec_result.is_success:
@@ -245,11 +222,7 @@ class CephSelfHealingAgent:
                         failed_command=step.command
                     )
 
-                    proposal: RemediationProposal = self.retriever.query(
-                        context=query_ctx,
-                        working_memory=working_memory,
-                        episodic_memory=self.episodic_memory
-                    )
+                    proposal: RemediationProposal = self.retriever.query(query_ctx)
                     print(f"          --> Diagnosis  : {proposal.rationale}")
                     print(f"          --> Fix Command: {proposal.fix_command}")
                     print(f"          --> Safety     : {proposal.danger_level.upper()} (Confidence: {proposal.confidence*100:.0f}%)")
@@ -292,16 +265,6 @@ class CephSelfHealingAgent:
 
                     heal_result = self.executor.execute(proposal.fix_command, timeout=60)
                     healing_applied = heal_result.is_success
-
-                    working_memory.record_attempt(
-                        step_name=f"{step.name}_heal",
-                        attempt_idx=iteration_count,
-                        command=proposal.fix_command,
-                        exit_code=heal_result.exit_code,
-                        stdout=heal_result.stdout,
-                        stderr=heal_result.stderr
-                    )
-
                     healing_history.append({
                         "step": step.name,
                         "failed_command": step.command,

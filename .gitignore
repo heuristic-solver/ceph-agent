@@ -12,6 +12,9 @@ ENV/
 # Environment Variables / Secrets
 .env
 
+# Local SQLite Runtime Telemetry
+agent_traces.db
+
 # IDE / OS files
 .vscode/
 .idea/
