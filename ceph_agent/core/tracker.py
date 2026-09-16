@@ -224,6 +224,35 @@ class ExecutionTracker:
         conn.commit()
         conn.close()
 
+    def log_transition(
+        self,
+        task_id: str,
+        from_state: TaskState,
+        to_state: TaskState,
+        reason: Optional[str] = None
+    ) -> None:
+        """Records a state transition for a task.
+
+        This is called on preflight failures (and similar early-exit paths) where
+        create_task / update_task_state need to be coordinated atomically.
+        Internally creates the task record if not present, then updates state.
+        """
+        now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        conn = self._get_connection()
+        # Upsert the task row (it may not exist yet on hard preflight failures)
+        conn.execute("""
+            INSERT OR IGNORE INTO tasks (task_id, payload_path, workflow, state, created_at, updated_at, iteration_count, summary)
+            VALUES (?, '', 'UNKNOWN', ?, ?, ?, 0, '');
+        """, (task_id, from_state.value if hasattr(from_state, "value") else str(from_state), now, now))
+        to_val = to_state.value if hasattr(to_state, "value") else str(to_state)
+        conn.execute("""
+            UPDATE tasks
+            SET state = ?, updated_at = ?, summary = ?
+            WHERE task_id = ?;
+        """, (to_val, now, reason or "", task_id))
+        conn.commit()
+        conn.close()
+
     def get_task_summary(self, task_id: str) -> Optional[TaskSummary]:
         """Fetches the aggregated summary for a task."""
         conn = self._get_connection()

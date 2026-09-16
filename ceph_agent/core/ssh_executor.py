@@ -61,8 +61,11 @@ class SSHExecutor:
             username=self.user,
             password=self.password,
             timeout=timeout,
-            banner_timeout=timeout,
-            auth_timeout=timeout
+            # banner_timeout and auth_timeout are intentionally longer than the TCP
+            # connect timeout. Slow / just-booted VMs can take 20-30s for sshd to
+            # finish writing the SSH banner even after the TCP port is open.
+            banner_timeout=max(timeout, 30),
+            auth_timeout=max(timeout, 30)
         )
         self._client = client
         return self._client
@@ -72,26 +75,41 @@ class SSHExecutor:
         client = self.connect()
         start_time = time.time()
 
-        full_cmd = f"echo '{self.sudo_password}' | sudo -S bash -c \"{cmd}\""
-        stdin, stdout, stderr = client.exec_command(full_cmd, timeout=timeout)
+        import base64
+        cmd_b64 = base64.b64encode(cmd.encode("utf-8")).decode("ascii")
+        full_cmd = f"echo '{self.sudo_password}' | sudo -S bash -c \"$(echo {cmd_b64} | base64 -d)\""
+        try:
+            stdin, stdout, stderr = client.exec_command(full_cmd, timeout=timeout)
 
-        out_raw = stdout.read().decode("utf-8", errors="replace").strip()
-        err_raw = stderr.read().decode("utf-8", errors="replace").strip()
+            out_raw = stdout.read().decode("utf-8", errors="replace").strip()
+            err_raw = stderr.read().decode("utf-8", errors="replace").strip()
 
-        # Clean out sudo password prompt prefix without dropping actual stderr content
-        import re
-        err_clean = re.sub(r"\[sudo\] password for [^:]+:\s*", "", err_raw, flags=re.IGNORECASE).strip()
+            # Clean out sudo password prompt prefix without dropping actual stderr content
+            import re
+            err_clean = re.sub(r"\[sudo\] password for [^:]+:\s*", "", err_raw, flags=re.IGNORECASE).strip()
 
-        exit_code = stdout.channel.recv_exit_status()
-        duration_ms = int((time.time() - start_time) * 1000)
+            exit_code = stdout.channel.recv_exit_status()
+            duration_ms = int((time.time() - start_time) * 1000)
 
-        return ExecutionResult(
-            command=cmd,
-            stdout=out_raw,
-            stderr=err_clean,
-            exit_code=exit_code,
-            duration_ms=duration_ms
-        )
+            return ExecutionResult(
+                command=cmd,
+                stdout=out_raw,
+                stderr=err_clean,
+                exit_code=exit_code,
+                duration_ms=duration_ms
+            )
+        except Exception as e:
+            duration_ms = int((time.time() - start_time) * 1000)
+            logger.warning("SSH command execution error on '%s': %s", cmd, e)
+            # Reset client on connection breaks
+            self._client = None
+            return ExecutionResult(
+                command=cmd,
+                stdout="",
+                stderr=f"SSH execution exception or timeout: {e}",
+                exit_code=124,
+                duration_ms=duration_ms
+            )
 
     def test_connectivity(self, timeout: int = 10) -> Tuple[bool, str, Dict[str, Any]]:
         """

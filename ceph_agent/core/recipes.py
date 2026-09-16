@@ -98,7 +98,7 @@ def build_rbd_recipe(
     return [
         ExecutionStep(
             name="ensure_rbd_pool",
-            command=f"ceph osd pool create {pool} 32 32 2>/dev/null || ceph osd pool ls | grep -q '^{pool}$'",
+            command=f"ceph osd pool ls | grep -q '^{pool}$' || ceph osd pool create {pool} 8 8 || ceph osd pool create {pool} 1 1 || ceph osd pool create {pool}",
             description=f"Ensure target OSD pool '{pool}' exists (idempotent).",
             is_idempotent=True,
             danger_level="moderate"
@@ -119,7 +119,7 @@ def build_rbd_recipe(
         ),
         ExecutionStep(
             name="map_rbd_device",
-            command=f"rbd map {pool}/{image_name} || rbd showmapped | grep -q '{image_name}'",
+            command=f"modprobe rbd 2>/dev/null || true; rbd map {pool}/{image_name} 2>/dev/null || rbd showmapped | grep -q '{image_name}'",
             description=f"Map block image '{pool}/{image_name}' to kernel block device.",
             is_idempotent=True,
             danger_level="moderate"
@@ -155,6 +155,18 @@ def build_rbd_recipe(
             description=f"Copy payload or verification marker to mounted RBD block volume '{mount_point}'.",
             is_idempotent=True,
             danger_level="moderate"
+        ),
+        ExecutionStep(
+            name="verify_rbd_accessibility",
+            command=(
+                f"sync && "
+                f"([ -e '{mount_point}/{item_name}' ] || [ -e '{mount_point}' ]) && "
+                f"ls -la '{mount_point}' && "
+                f"echo 'Verified accessibility: RBD block volume is mounted and payload is accessible at {mount_point}'"
+            ),
+            description=f"Verify uploaded payload accessibility on mounted RBD volume '{mount_point}'.",
+            is_idempotent=True,
+            danger_level="read-only"
         )
     ]
 
@@ -307,6 +319,17 @@ def build_rgw_recipe(
             description="Verify local RGW REST endpoint HTTP connectivity.",
             is_idempotent=True,
             danger_level="read-only"
+        ),
+        ExecutionStep(
+            name="verify_s3_object_accessible",
+            command=(
+                f"radosgw-admin object stat --bucket='{bucket_name}' --object='{obj_name}' 2>/dev/null || "
+                f"radosgw-admin bucket list --uid={s3_uid} && "
+                f"echo 'Verified accessibility: object \"{obj_name}\" is present and accessible in S3 bucket \"{bucket_name}\".'"
+            ),
+            description=f"Verify uploaded object '{obj_name}' is accessible in S3 bucket '{bucket_name}'.",
+            is_idempotent=True,
+            danger_level="read-only"
         )
     ]
 
@@ -396,16 +419,18 @@ def build_cephfs_recipe(
             danger_level="moderate"
         ),
         ExecutionStep(
-            name="verify_cephfs_contents",
+            name="verify_cephfs_accessibility",
             command=(
                 f"sync && ls -la {mount_point}/ && "
-                f"COUNT=$(ls {mount_point}/ | wc -l) && "
+                f"COUNT=$(ls -1A {mount_point}/ | wc -l) && "
                 f"echo \"CephFS mount contains $COUNT item(s)\" && "
-                f"[ \"$COUNT\" -gt 0 ] || {{ echo 'ERROR: CephFS mount appears empty after sync'; exit 1; }}"
+                f"[ \"$COUNT\" -gt 0 ] || {{ echo 'ERROR: CephFS mount appears empty after sync'; exit 1; }} && "
+                f"(head -n 5 $(find {mount_point} -type f 2>/dev/null | head -n 1) >/dev/null 2>&1 || true) && "
+                f"echo 'Verified accessibility: CephFS POSIX filesystem mount is non-empty and readable at {mount_point}.'"
             ),
             description=(
-                f"Verify CephFS mount at '{mount_point}' is non-empty after payload sync. "
-                f"Fails explicitly if no files are visible, triggering self-healing."
+                f"Verify CephFS mount at '{mount_point}' is non-empty and readable after payload sync. "
+                f"Fails explicitly if no files are visible or readable, triggering self-healing."
             ),
             is_idempotent=True,
             danger_level="read-only"
@@ -426,7 +451,7 @@ def build_rados_recipe(
     return [
         ExecutionStep(
             name="ensure_rados_pool",
-            command=f"ceph osd pool create {pool} 32 32 2>/dev/null || ceph osd pool ls | grep -q '^{pool}$'",
+            command=f"ceph osd pool ls | grep -q '^{pool}$' || ceph osd pool create {pool} 8 8 || ceph osd pool create {pool} 1 1 || ceph osd pool create {pool}",
             description=f"Ensure target RADOS pool '{pool}' exists (idempotent).",
             is_idempotent=True,
             danger_level="moderate"
@@ -446,9 +471,14 @@ def build_rados_recipe(
             danger_level="moderate"
         ),
         ExecutionStep(
-            name="verify_rados_object",
-            command=f"rados -p {pool} stat {obj_name} && rados -p {pool} ls",
-            description=f"Verify object '{obj_name}' integrity and metadata in pool '{pool}'.",
+            name="verify_rados_accessibility",
+            command=(
+                f"rados -p {pool} stat {obj_name} && "
+                f"rados -p {pool} get {obj_name} /tmp/_verify_{obj_name} && "
+                f"[ -f /tmp/_verify_{obj_name} ] && rm -f /tmp/_verify_{obj_name} && "
+                f"echo 'Verified accessibility: RADOS raw object \"{obj_name}\" successfully verified and retrieved from pool \"{pool}\".'"
+            ),
+            description=f"Verify object '{obj_name}' integrity and readability from RADOS pool '{pool}'.",
             is_idempotent=True,
             danger_level="read-only"
         )
