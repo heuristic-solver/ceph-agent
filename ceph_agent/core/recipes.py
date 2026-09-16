@@ -10,6 +10,23 @@ Known Fix (2026-09-15):
   Bug: `radosgw-admin bucket create` does NOT create S3 buckets — it only re-links existing ones.
   Fix: Bucket creation and file upload now use the S3 API via `python3 -c boto3` executed over SSH,
        using keys retrieved from `radosgw-admin user info`. The || true anti-pattern has been removed.
+
+Known Fix (2026-09-16) — CephFS file visibility:
+  Bug 1: `cp -r /tmp/dir /mnt/cephfs/` copies the *directory itself*, landing files at
+         /mnt/cephfs/dir/<files> instead of /mnt/cephfs/<files>. The colleague could cd into
+         the mount but saw it as "empty" because the files were one level deeper than expected.
+  Fix 1: Changed to `cp -r /tmp/dir/. /mnt/cephfs/` (trailing /.) to expand directory contents
+         directly into the mount root.
+
+  Bug 2: The mount idempotency guard (`mount | grep -q '/mnt/cephfs'`) matched ANY mount at
+         that path — including stale tmpfs or bind-mounts from a prior failed run. This caused
+         the sync step to write into a non-CephFS mount silently.
+  Fix 2: Guard now uses `grep -E '/mnt/cephfs.*type ceph'` to verify the mount is genuinely
+         a live CephFS mount before skipping the mount command.
+
+  Addition: A new `verify_cephfs_contents` step runs `ls | wc -l` after sync and fails explicitly
+            with exit code 1 if the mount appears empty, so the agent's self-healing loop triggers
+            rather than reporting false success.
 """
 
 import os
@@ -339,21 +356,57 @@ def build_cephfs_recipe(
         ExecutionStep(
             name="mount_cephfs",
             command=(
-                f"(mount | grep -q '{mount_point}' && echo 'already mounted') || "
+                # Verify mount is actually of type 'ceph' before declaring already-mounted.
+                # This prevents stale bind-mounts or tmpfs mounts from silently short-circuiting.
+                f"(mount | grep -E '{mount_point}.*type ceph' && echo 'already mounted as ceph') || "
                 f"mount -t ceph :/ {mount_point} -o name=admin,secret=$(ceph auth get-key client.admin 2>/dev/null || cat /etc/ceph/ceph.client.admin.keyring 2>/dev/null | grep key | awk '{{print $3}}') || "
                 f"mount -t ceph :/ {mount_point} -o name=admin || "
                 f"mount -t ceph :/{fs_name} {mount_point} -o name=admin"
             ),
-            description=f"Mount CephFS volume to '{mount_point}' (idempotent, supports both modern and legacy Ceph mount options).",
+            description=(
+                f"Mount CephFS volume to '{mount_point}'. Validates that any existing mount is genuinely "
+                f"type 'ceph' before skipping — prevents stale mounts from silently masking a real CephFS mount."
+            ),
             is_idempotent=True,
             danger_level="moderate"
         ),
         ExecutionStep(
             name="sync_payload_to_cephfs",
-            command=f"if [ -d /tmp/{item_name} ]; then cp -r /tmp/{item_name} {mount_point}/; elif [ -f /tmp/{item_name} ]; then cp /tmp/{item_name} {mount_point}/; else touch {mount_point}/{item_name}; fi && ls -la {mount_point}",
-            description=f"Copy ingested payload into mounted CephFS volume at '{mount_point}'.",
+            command=(
+                # For a directory: copy its *contents* (trailing /.) into the mount root so that
+                # individual files appear directly under /mnt/cephfs/ instead of nested one level
+                # deeper under /mnt/cephfs/{dirname}/.
+                f"if [ -d /tmp/{item_name} ]; then "
+                f"  mkdir -p {mount_point} && cp -r /tmp/{item_name}/. {mount_point}/ && sync; "
+                f"elif [ -f /tmp/{item_name} ]; then "
+                f"  cp /tmp/{item_name} {mount_point}/ && sync; "
+                f"else "
+                f"  touch {mount_point}/{item_name}; "
+                f"fi"
+            ),
+            description=(
+                f"Copy ingested payload into mounted CephFS volume at '{mount_point}'. "
+                f"Directories are expanded so their contents land directly at the mount root, "
+                f"not nested under a subdirectory. 'sync' is called to flush kernel page-cache "
+                f"writes to the CephFS journal before verification."
+            ),
             is_idempotent=True,
             danger_level="moderate"
+        ),
+        ExecutionStep(
+            name="verify_cephfs_contents",
+            command=(
+                f"sync && ls -la {mount_point}/ && "
+                f"COUNT=$(ls {mount_point}/ | wc -l) && "
+                f"echo \"CephFS mount contains $COUNT item(s)\" && "
+                f"[ \"$COUNT\" -gt 0 ] || {{ echo 'ERROR: CephFS mount appears empty after sync'; exit 1; }}"
+            ),
+            description=(
+                f"Verify CephFS mount at '{mount_point}' is non-empty after payload sync. "
+                f"Fails explicitly if no files are visible, triggering self-healing."
+            ),
+            is_idempotent=True,
+            danger_level="read-only"
         )
     ]
 
