@@ -376,19 +376,21 @@ def build_cephfs_recipe(
                 # For a directory: copy its *contents* (trailing /.) into the mount root so that
                 # individual files appear directly under /mnt/cephfs/ instead of nested one level
                 # deeper under /mnt/cephfs/{dirname}/.
+                # The else branch intentionally hard-fails with exit 1 — creating an empty placeholder
+                # file masked upload failures and reported false success to the agent.
                 f"if [ -d /tmp/{item_name} ]; then "
                 f"  mkdir -p {mount_point} && cp -r /tmp/{item_name}/. {mount_point}/ && sync; "
                 f"elif [ -f /tmp/{item_name} ]; then "
                 f"  cp /tmp/{item_name} {mount_point}/ && sync; "
                 f"else "
-                f"  touch {mount_point}/{item_name}; "
+                f"  echo 'ERROR: payload /tmp/{item_name} not found on remote — upload or extraction failed' >&2 && exit 1; "
                 f"fi"
             ),
             description=(
                 f"Copy ingested payload into mounted CephFS volume at '{mount_point}'. "
-                f"Directories are expanded so their contents land directly at the mount root, "
-                f"not nested under a subdirectory. 'sync' is called to flush kernel page-cache "
-                f"writes to the CephFS journal before verification."
+                f"Directories: contents are expanded directly into the mount root (not nested under a subdirectory). "
+                f"If /tmp/{item_name} is absent the step fails with exit 1, triggering the self-healing loop "
+                f"instead of silently creating an empty placeholder file."
             ),
             is_idempotent=True,
             danger_level="moderate"

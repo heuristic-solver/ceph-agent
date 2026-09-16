@@ -145,24 +145,55 @@ class SSHExecutor:
             return False
 
     def upload_path(self, local_path: str, remote_path: str) -> bool:
-        """Uploads a local file or directory tree to the remote Ceph VM."""
+        """
+        Uploads a local file or directory tree to the remote Ceph VM.
+
+        For directories: packages into a tar archive, uploads via SFTP, extracts on the
+        remote with `tar -xf ... -C /tmp/`, then verifies the extracted directory actually
+        exists before returning True.  Without this verification, a failed extraction returns
+        True and downstream recipe steps find nothing in /tmp/, silently hitting the
+        'else touch' fallback instead of triggering self-healing.
+        """
         try:
             if os.path.isfile(local_path):
                 return self.upload_file(local_path, remote_path)
+
             elif os.path.isdir(local_path):
                 import tarfile
                 import tempfile
-                tar_name = f"{os.path.basename(os.path.normpath(local_path))}.tar"
+                dir_name = os.path.basename(os.path.normpath(local_path))
+                tar_name = f"{dir_name}.tar"
                 tmp_dir = tempfile.gettempdir()
                 local_tar = os.path.join(tmp_dir, tar_name)
+
                 with tarfile.open(local_tar, "w") as tar:
-                    tar.add(local_path, arcname=os.path.basename(os.path.normpath(local_path)))
+                    tar.add(local_path, arcname=dir_name)
+
                 remote_tar = f"/tmp/{tar_name}"
-                if self.upload_file(local_tar, remote_tar):
-                    self.execute(f"tar -xf {remote_tar} -C /tmp/ && rm -f {remote_tar}")
-                    if os.path.exists(local_tar):
-                        os.remove(local_tar)
-                    return True
+                remote_dir = f"/tmp/{dir_name}"
+
+                if not self.upload_file(local_tar, remote_tar):
+                    logger.warning(f"SFTP upload of tar archive failed: {local_tar} -> {remote_tar}")
+                    return False
+
+                # Extract and verify in one command — if tar fails, the test command
+                # will also fail and we get a clear non-zero exit code.
+                extract_result = self.execute(
+                    f"tar -xf {remote_tar} -C /tmp/ && rm -f {remote_tar} && "
+                    f"[ -d {remote_dir} ] || {{ echo 'ERROR: extraction produced no directory at {remote_dir}'; exit 1; }}"
+                )
+                if os.path.exists(local_tar):
+                    os.remove(local_tar)
+
+                if not extract_result.is_success:
+                    logger.warning(
+                        f"Tar extraction failed or directory not found at {remote_dir}: "
+                        f"exit={extract_result.exit_code} stderr={extract_result.stderr!r}"
+                    )
+                    return False
+
+                return True
+
             return False
         except Exception as e:
             logger.warning(f"Upload path failed for {local_path} -> {remote_path}: {e}")
