@@ -17,6 +17,8 @@ from ceph_classifier.classifier import WorkflowClassifier
 
 
 def main():
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(line_buffering=True, encoding="utf-8", errors="replace")
     parser = argparse.ArgumentParser(
         description="Ceph Autonomous Workload Orchestration & Self-Healing Agent CLI"
     )
