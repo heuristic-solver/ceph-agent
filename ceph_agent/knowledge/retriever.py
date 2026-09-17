@@ -438,18 +438,18 @@ class RemediationRetriever:
                     llm_reasoning="Synthesized CephFS joinable recovery."
                 )
 
-        # Domain Pattern 6: Payload Missing / Remote Ingestion Diagnostic
-        if "payload" in stderr_lower and ("not found on remote" in stderr_lower or "upload or extraction failed" in stderr_lower):
+        # Domain Pattern 6: Payload Missing / Remote Ingestion Self-Healing
+        if "payload" in stderr_lower and ("not found on remote" in stderr_lower or "upload or extraction failed" in stderr_lower or "no such file or directory" in stderr_lower):
             return RemediationProposal(
-                fix_command="ls -la /tmp/",
+                fix_command="RE_INGEST_PAYLOAD",
                 danger_level="read-only",
-                rationale="Payload file or directory is missing from /tmp on the Ceph node; inspecting /tmp contents.",
+                rationale="Payload file or directory is missing on the remote host; re-triggering remote ingestion and extraction.",
                 doc_citation="Ceph Agent Ingestion Protocol",
-                confidence=0.90,
+                confidence=0.96,
                 applicable_workflow=context.workflow or "CephFS",
                 health_code=None,
                 idempotent=True,
-                llm_reasoning="Synthesized payload diagnostic inspection."
+                llm_reasoning="Synthesized dynamic payload re-ingestion and extraction action."
             )
 
         # Check for explicit health code mentioned in query

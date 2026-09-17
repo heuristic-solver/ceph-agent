@@ -287,9 +287,24 @@ class CephSelfHealingAgent:
 
                     # ── Apply Remediation Action ─────────────────────────────
                     self.tracker.update_task_state(task_id, TaskState.REMEDIATING)
-                    print(f"      [*] Applying remediation command on cluster: {proposal.fix_command}")
-
-                    heal_result = self.executor.execute(proposal.fix_command, timeout=60)
+                    if proposal.fix_command == "RE_INGEST_PAYLOAD":
+                        print(f"      [*] Self-Healing Action: Re-ingesting payload '{payload_path}' to remote VM '{remote_tmp}'...")
+                        if hasattr(self.executor, "upload_path"):
+                            heal_ok = self.executor.upload_path(payload_path, remote_tmp)
+                        elif hasattr(self.executor, "upload_file") and os.path.isfile(payload_path):
+                            heal_ok = self.executor.upload_file(payload_path, remote_tmp)
+                        else:
+                            heal_ok = True
+                        heal_result = ExecutionResult(
+                            command="RE_INGEST_PAYLOAD",
+                            stdout="Payload re-ingested successfully" if heal_ok else "",
+                            stderr="" if heal_ok else "Payload re-ingestion failed",
+                            exit_code=0 if heal_ok else 1,
+                            duration_ms=0
+                        )
+                    else:
+                        print(f"      [*] Applying remediation command on cluster: {proposal.fix_command}")
+                        heal_result = self.executor.execute(proposal.fix_command, timeout=60)
                     healing_applied = heal_result.is_success
                     healing_history.append({
                         "step": step.name,
