@@ -108,6 +108,27 @@ class TestCephSelfHealingAgent(unittest.TestCase):
         self.assertEqual(summary.target_workflow, "CephFS")
         self.assertEqual(summary.steps_completed, summary.steps_total)
 
+    def test_cephfs_zip_archive_clean_execution(self):
+        """Clean-path: Packaged ZIP archive provisions via CephFS with extraction DAG."""
+        import zipfile
+        zip_path = os.path.join(self.temp_dir, "my_microservice.zip")
+        with zipfile.ZipFile(zip_path, "w") as zf:
+            zf.writestr("app.py", "from flask import Flask\napp = Flask(__name__)")
+            zf.writestr("requirements.txt", "flask==2.3.0")
+
+        mock_ssh = MockSSHExecutor(default_exit_code=0)
+        agent = CephSelfHealingAgent(
+            classifier=self.classifier,
+            retriever=self.retriever,
+            executor=mock_ssh,
+            tracker=self.tracker
+        )
+
+        summary = agent.run(payload_path=zip_path)
+        self.assertEqual(summary.status, "SUCCESS")
+        self.assertEqual(summary.target_workflow, "CephFS")
+        self.assertEqual(summary.steps_completed, summary.steps_total)
+
     def test_rados_clean_execution(self):
         """Clean-path: Raw shard provisions via RADOS."""
         omap_magic = b"OMAP_DB_V1"

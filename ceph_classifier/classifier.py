@@ -30,6 +30,8 @@ class WorkflowClassifier:
         """Extracts complete structural, filesystem, and binary metadata for a payload."""
         fs_info = self.fs_probe.inspect(item_path)
         is_dir = fs_info["is_directory"]
+        is_archive = fs_info.get("is_archive", False)
+        is_pkg_dir = fs_info.get("is_packaged_directory", False)
         
         if is_dir:
             magic_sig = "DIRECTORY_TREE"
@@ -55,7 +57,9 @@ class WorkflowClassifier:
             max_depth=fs_info["max_depth"],
             has_project_markers=fs_info["has_project_markers"],
             detected_markers=fs_info["detected_markers"],
-            sample_header_hex=sample_hex
+            sample_header_hex=sample_hex,
+            is_archive=is_archive,
+            is_packaged_directory=is_pkg_dir
         )
 
     def classify(self, item_path: str, user_intent: Optional[str] = None) -> ClassificationResult:
@@ -73,7 +77,14 @@ class WorkflowClassifier:
         
         # 1. Evaluate Context Probe for specific intent / ambiguities
         magic_info = self.magic_probe.inspect(item_path) if not meta.is_directory else {"magic_name": "DIRECTORY_TREE"}
-        fs_info = {"is_directory": meta.is_directory, "max_depth": meta.max_depth, "has_project_markers": meta.has_project_markers}
+        fs_info = {
+            "is_directory": meta.is_directory,
+            "is_archive": meta.is_archive,
+            "is_packaged_directory": meta.is_packaged_directory,
+            "file_count": meta.file_count,
+            "max_depth": meta.max_depth,
+            "has_project_markers": meta.has_project_markers
+        }
         ctx_eval = self.context_probe.evaluate(item_path, magic_info, fs_info, user_intent=user_intent)
 
         # ── TIER 1: DETERMINISTIC CLASSIFICATION ─────────────────────
@@ -97,20 +108,27 @@ class WorkflowClassifier:
                 metadata=meta
             )
 
-        # Rule B: Directories -> CephFS
-        if meta.is_directory:
+        # Rule B: Hierarchical Directories & Packaged Codebase/Directory Archives -> CephFS
+        if meta.is_directory or meta.is_packaged_directory:
             markers_str = f" with POSIX markers {meta.detected_markers}" if meta.detected_markers else ""
+            archive_note = " (packaged archive container)" if meta.is_packaged_directory else ""
+            clean_item_name = item_name
+            for ext in [".tar.gz", ".tar.bz2", ".tar.xz", ".tgz", ".zip", ".tar", ".7z"]:
+                if clean_item_name.lower().endswith(ext):
+                    clean_item_name = clean_item_name[:-len(ext)]
+                    break
             return ClassificationResult(
                 item_path=meta.path,
                 item_type="hierarchical_directory",
                 target_workflow="CephFS",
                 confidence=0.96,
-                rationale=f"Directory structure ({meta.file_count} files, max depth {meta.max_depth}){markers_str}. Best mounted as a distributed POSIX filesystem preserving permissions and directory hierarchy.",
-                target_destination=f"{DEFAULT_CEPHFS_MOUNT.rstrip('/')}/{item_name}",
+                rationale=f"Directory structure ({meta.file_count} files, max depth {meta.max_depth}){markers_str}{archive_note}. Best mounted as a distributed POSIX filesystem preserving permissions and directory hierarchy.",
+                target_destination=f"{DEFAULT_CEPHFS_MOUNT.rstrip('/')}/{clean_item_name}",
                 tuning_parameters={
                     "preserve_posix_permissions": True,
                     "preserve_xattrs": True,
-                    "mount_point": DEFAULT_CEPHFS_MOUNT
+                    "mount_point": DEFAULT_CEPHFS_MOUNT,
+                    "unpack_to_mount": meta.is_packaged_directory
                 },
                 decision_tier="tier1_deterministic",
                 metadata=meta
@@ -146,11 +164,11 @@ class WorkflowClassifier:
                 metadata=meta
             )
 
-        # Rule E: Standalone Media, Datasets, Columnar, Archives -> RGW (S3)
+        # Rule E: Standalone Media, Datasets, Columnar, Flat Objects -> RGW (S3)
         if meta.magic_signature in ["Parquet", "ZIP", "GZIP", "BZIP2", "XZ", "7Z", "PDF", "PNG", "JPEG", "MP4_CONTAINER"] or meta.magic_signature.startswith("MEDIA_EXT_"):
             return ClassificationResult(
                 item_path=meta.path,
-                item_type="columnar_dataset" if meta.magic_signature == "Parquet" else ("archive_bundle" if "ZIP" in meta.magic_signature or "GZIP" in meta.magic_signature else "flat_media_object"),
+                item_type="columnar_dataset" if meta.magic_signature == "Parquet" else ("archive_bundle" if meta.is_archive else "flat_media_object"),
                 target_workflow="RGW",
                 confidence=0.95,
                 rationale=f"Immutable object format ({meta.mime_type}, {meta.size_mb} MB) detected. Optimal for Amazon S3 / Ceph RGW REST storage with high throughput multipart streaming.",

@@ -33,6 +33,8 @@ class PayloadMetadata:
     has_project_markers: bool
     detected_markers: List[str] = field(default_factory=list)
     sample_header_hex: str = ""
+    is_archive: bool = False
+    is_packaged_directory: bool = False
 
 @dataclass
 class ClassificationResult:

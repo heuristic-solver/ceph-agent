@@ -396,13 +396,17 @@ def build_cephfs_recipe(
         ExecutionStep(
             name="sync_payload_to_cephfs",
             command=(
-                # For a directory: copy its *contents* (trailing /.) into the mount root so that
-                # individual files appear directly under /mnt/cephfs/ instead of nested one level
-                # deeper under /mnt/cephfs/{dirname}/.
-                # The else branch intentionally hard-fails with exit 1 — creating an empty placeholder
-                # file masked upload failures and reported false success to the agent.
+                # For directories: copy contents into mount root.
+                # For zip archives: extract directly into mount root via unzip with python3 zipfile fallback.
+                # For tar/tgz archives: extract directly into mount root via tar -xf.
+                # For single files: copy directly into mount root.
+                # If absent, fail explicitly with exit 1 to trigger self-healing.
                 f"if [ -d /tmp/{item_name} ]; then "
                 f"  mkdir -p {mount_point} && cp -r /tmp/{item_name}/. {mount_point}/ && sync; "
+                f"elif [[ \"{item_name}\" == *.zip ]]; then "
+                f"  mkdir -p {mount_point} && (unzip -q -o /tmp/{item_name} -d {mount_point}/ || python3 -m zipfile -e /tmp/{item_name} {mount_point}/) && sync; "
+                f"elif [[ \"{item_name}\" =~ \\.(tar|tar\\.gz|tgz|tar\\.bz2|tar\\.xz)$ ]]; then "
+                f"  mkdir -p {mount_point} && tar -xf /tmp/{item_name} -C {mount_point}/ && sync; "
                 f"elif [ -f /tmp/{item_name} ]; then "
                 f"  cp /tmp/{item_name} {mount_point}/ && sync; "
                 f"else "
@@ -410,10 +414,9 @@ def build_cephfs_recipe(
                 f"fi"
             ),
             description=(
-                f"Copy ingested payload into mounted CephFS volume at '{mount_point}'. "
-                f"Directories: contents are expanded directly into the mount root (not nested under a subdirectory). "
-                f"If /tmp/{item_name} is absent the step fails with exit 1, triggering the self-healing loop "
-                f"instead of silently creating an empty placeholder file."
+                f"Copy or unpack ingested payload into mounted CephFS volume at '{mount_point}'. "
+                f"Packaged ZIP/TAR archives and directory trees are expanded directly into the filesystem mount. "
+                f"If /tmp/{item_name} is absent the step fails with exit 1, triggering self-healing."
             ),
             is_idempotent=True,
             danger_level="moderate"

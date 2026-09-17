@@ -41,14 +41,23 @@ class ContextProbe:
                     "tuning": {"image_format": 2}
                 }
 
-        # 2. Evaluate TAR / GZIP Archives
-        if magic_name in ["POSIX_TAR", "GZIP", "ZIP", "7Z"] or item_path.endswith((".tar", ".tar.gz", ".tgz", ".zip")):
-            if any(k in intent_lower for k in ["unpack", "workspace", "codebase", "extract", "shared folder"]):
+        # 2. Evaluate TAR / GZIP / ZIP Archives
+        if magic_name in ["POSIX_TAR", "GZIP", "ZIP", "7Z"] or item_path.endswith((".tar", ".tar.gz", ".tgz", ".zip", ".tar.bz2", ".tar.xz")):
+            is_pkg_dir = fs_info.get("is_packaged_directory", False)
+            if any(k in intent_lower for k in ["s3", "cold", "backup", "raw object", "immutable", "rgw", "bucket"]):
+                return {
+                    "is_ambiguous": False,
+                    "recommended_workflow": "RGW",
+                    "confidence": 0.94,
+                    "rationale": "Archive designated as an immutable backup / cold object for S3 storage.",
+                    "tuning": {"storage_class": "STANDARD"}
+                }
+            elif is_pkg_dir or any(k in intent_lower for k in ["unpack", "workspace", "codebase", "extract", "shared folder", "cephfs", "posix", "folder", "directory"]):
                 return {
                     "is_ambiguous": False,
                     "recommended_workflow": "CephFS",
-                    "confidence": 0.93,
-                    "rationale": "Archive intended to be unpacked into a shared hierarchical POSIX filesystem workspace.",
+                    "confidence": 0.95,
+                    "rationale": "Packaged archive contains a hierarchical directory tree; unpacked into a shared CephFS POSIX filesystem.",
                     "tuning": {"unpack_to_mount": True}
                 }
             else:

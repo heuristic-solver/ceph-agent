@@ -131,6 +131,39 @@ class TestWorkflowClassifier(unittest.TestCase):
         self.assertGreaterEqual(res.confidence, 0.90)
         self.assertEqual(res.item_type, "raw_key_value_shard")
 
+    # ── PACKAGED DIRECTORY ARCHIVE TESTS (CephFS) ─────────────────
+
+    def test_zip_packaged_codebase_archive(self):
+        import zipfile
+        zip_path = os.path.join(self.test_dir, "web_app_bundle.zip")
+        with zipfile.ZipFile(zip_path, "w") as zf:
+            zf.writestr("src/main.py", "print('hello from app')")
+            zf.writestr("src/utils.py", "def helper(): pass")
+            zf.writestr("pyproject.toml", "[tool.poetry]\nname = 'web-app'")
+        
+        res = self.classifier.classify(zip_path)
+        self.assertEqual(res.target_workflow, "CephFS")
+        self.assertGreaterEqual(res.confidence, 0.95)
+        self.assertEqual(res.item_type, "hierarchical_directory")
+        self.assertTrue(res.metadata.is_packaged_directory)
+        self.assertTrue(res.metadata.has_project_markers)
+        self.assertTrue(res.tuning_parameters.get("unpack_to_mount"))
+
+    def test_tar_gz_packaged_codebase_archive(self):
+        import tarfile, io
+        tar_path = os.path.join(self.test_dir, "service_module.tar.gz")
+        with tarfile.open(tar_path, "w:gz") as tf:
+            for name, content in [("server.js", b"console.log(1)"), ("package.json", b'{"name":"srv"}')]:
+                ti = tarfile.TarInfo(name=name)
+                ti.size = len(content)
+                tf.addfile(ti, io.BytesIO(content))
+
+        res = self.classifier.classify(tar_path)
+        self.assertEqual(res.target_workflow, "CephFS")
+        self.assertGreaterEqual(res.confidence, 0.95)
+        self.assertTrue(res.metadata.is_packaged_directory)
+        self.assertTrue(res.metadata.has_project_markers)
+
     # ── CONTEXTUAL INTENT DISAMBIGUATION TESTS ─────────────────────
 
     def test_sqlite_transactional_intent(self):
