@@ -157,12 +157,38 @@ class CephSelfHealingAgent:
         # Stream payload file/directory to remote VM if live connection
         if os.path.exists(payload_path) and not isinstance(self.executor, MockSSHExecutor):
             remote_tmp = f"/tmp/{os.path.basename(os.path.normpath(payload_path))}"
+            upload_ok = False
             if hasattr(self.executor, "upload_path"):
-                if self.executor.upload_path(payload_path, remote_tmp):
-                    print(f"  [+] Ingested Payload: {payload_path} -> {remote_tmp} on Ceph VM")
+                upload_ok = self.executor.upload_path(payload_path, remote_tmp)
             elif hasattr(self.executor, "upload_file") and os.path.isfile(payload_path):
-                if self.executor.upload_file(payload_path, remote_tmp):
-                    print(f"  [+] Ingested Payload: {payload_path} -> {remote_tmp} on Ceph VM ({os.path.getsize(payload_path)} bytes)")
+                upload_ok = self.executor.upload_file(payload_path, remote_tmp)
+            else:
+                upload_ok = True
+
+            if upload_ok:
+                print(f"  [+] Ingested Payload: {payload_path} -> {remote_tmp} on Ceph VM")
+            else:
+                err_msg = f"Failed to ingest payload '{payload_path}' to Ceph node at '{remote_tmp}'. Verify SFTP connectivity and disk space on the remote host."
+                print(f"  [ERROR] {err_msg}")
+                self.tracker.log_transition(
+                    task_id=task_id,
+                    from_state=TaskState.RUNNING,
+                    to_state=TaskState.FAILED,
+                    reason=err_msg
+                )
+                return AgentExecutionSummary(
+                    task_id=task_id,
+                    payload_path=payload_path,
+                    target_workflow=classification.target_workflow,
+                    target_destination=classification.target_destination,
+                    status="FAILED",
+                    iteration_count=0,
+                    steps_total=len(recipe),
+                    steps_completed=0,
+                    healing_actions_applied=[],
+                    final_message=err_msg,
+                    duration_ms=int((time.time() - start_time) * 1000)
+                )
 
         # ── Step 3: Closed-Loop Execution with Self-Healing ──────────────────
         print("\n[Stage 3: Autonomous Execution & State Machine]")

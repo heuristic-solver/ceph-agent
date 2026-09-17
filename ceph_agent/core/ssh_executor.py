@@ -179,38 +179,42 @@ class SSHExecutor:
             elif os.path.isdir(local_path):
                 import tarfile
                 import tempfile
+                import uuid
+                import shutil
+
                 dir_name = os.path.basename(os.path.normpath(local_path))
-                tar_name = f"{dir_name}.tar"
-                tmp_dir = tempfile.gettempdir()
-                local_tar = os.path.join(tmp_dir, tar_name)
+                unique_suffix = f"{int(time.time())}_{uuid.uuid4().hex[:6]}"
+                local_temp_dir = tempfile.mkdtemp(prefix="_ceph_tar_")
+                local_tar = os.path.join(local_temp_dir, f"{dir_name}_{unique_suffix}.tar")
 
                 with tarfile.open(local_tar, "w") as tar:
                     tar.add(local_path, arcname=dir_name)
 
-                remote_tar = f"/tmp/{tar_name}"
+                remote_tar = f"/tmp/_ceph_upload_{unique_suffix}_{dir_name}.tar"
                 remote_dir = f"/tmp/{dir_name}"
 
-                if not self.upload_file(local_tar, remote_tar):
-                    logger.warning(f"SFTP upload of tar archive failed: {local_tar} -> {remote_tar}")
-                    return False
+                try:
+                    if not self.upload_file(local_tar, remote_tar):
+                        logger.warning(f"SFTP upload of tar archive failed: {local_tar} -> {remote_tar}")
+                        return False
 
-                # Extract and verify in one command — if tar fails, the test command
-                # will also fail and we get a clear non-zero exit code.
-                extract_result = self.execute(
-                    f"tar -xf {remote_tar} -C /tmp/ && rm -f {remote_tar} && "
-                    f"[ -d {remote_dir} ] || {{ echo 'ERROR: extraction produced no directory at {remote_dir}'; exit 1; }}"
-                )
-                if os.path.exists(local_tar):
-                    os.remove(local_tar)
-
-                if not extract_result.is_success:
-                    logger.warning(
-                        f"Tar extraction failed or directory not found at {remote_dir}: "
-                        f"exit={extract_result.exit_code} stderr={extract_result.stderr!r}"
+                    # Extract and verify in one command — if tar fails, the test command
+                    # will also fail and we get a clear non-zero exit code.
+                    extract_result = self.execute(
+                        f"tar -xf {remote_tar} -C /tmp/ && rm -f {remote_tar} && "
+                        f"[ -d {remote_dir} ] || {{ echo 'ERROR: extraction produced no directory at {remote_dir}'; exit 1; }}"
                     )
-                    return False
 
-                return True
+                    if not extract_result.is_success:
+                        logger.warning(
+                            f"Tar extraction failed or directory not found at {remote_dir}: "
+                            f"exit={extract_result.exit_code} stderr={extract_result.stderr!r}"
+                        )
+                        return False
+
+                    return True
+                finally:
+                    shutil.rmtree(local_temp_dir, ignore_errors=True)
 
             return False
         except Exception as e:

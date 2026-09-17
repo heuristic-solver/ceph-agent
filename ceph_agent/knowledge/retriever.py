@@ -438,6 +438,20 @@ class RemediationRetriever:
                     llm_reasoning="Synthesized CephFS joinable recovery."
                 )
 
+        # Domain Pattern 6: Payload Missing / Remote Ingestion Diagnostic
+        if "payload" in stderr_lower and ("not found on remote" in stderr_lower or "upload or extraction failed" in stderr_lower):
+            return RemediationProposal(
+                fix_command="ls -la /tmp/",
+                danger_level="read-only",
+                rationale="Payload file or directory is missing from /tmp on the Ceph node; inspecting /tmp contents.",
+                doc_citation="Ceph Agent Ingestion Protocol",
+                confidence=0.90,
+                applicable_workflow=context.workflow or "CephFS",
+                health_code=None,
+                idempotent=True,
+                llm_reasoning="Synthesized payload diagnostic inspection."
+            )
+
         # Check for explicit health code mentioned in query
         explicit_codes = set(re.findall(r'\b[A-Z][A-Z0-9_]{3,}\b', f"{context.stderr} {context.cluster_health or ''}"))
         matched_hc = next((hc for hc in health_checks if hc.get("code") in explicit_codes and hc.get("resolution_commands")), None)
