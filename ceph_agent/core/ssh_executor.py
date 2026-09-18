@@ -38,35 +38,76 @@ class SSHExecutor:
         port: Optional[int] = None,
         user: Optional[str] = None,
         password: Optional[str] = None,
-        sudo_password: Optional[str] = None
+        sudo_password: Optional[str] = None,
+        key_path: Optional[str] = None
     ):
         self.host = host or os.getenv("VM_SSH_HOST", "127.0.0.1")
         self.port = port or int(os.getenv("VM_SSH_PORT", "2222"))
         self.user = user or os.getenv("VM_SSH_USER", "vboxuser")
-        self.password = password or os.getenv("VM_SSH_PASSWORD", "admin")
-        self.sudo_password = sudo_password or os.getenv("VM_SUDO_PASSWORD", self.password)
+
+        # Key-based auth takes precedence over password auth. When
+        # CEPH_AI_SSH_KEY_PATH is set (or key_path is passed explicitly), the
+        # connection uses the private key and no plaintext SSH password is
+        # required. Password fields remain available as an explicit fallback
+        # for environments that still rely on them.
+        self.key_path = key_path or os.getenv("CEPH_AI_SSH_KEY_PATH") or None
+        self.password = password or os.getenv("VM_SSH_PASSWORD") or None
+
+        # Passwordless sudo (NOPASSWD) is assumed when key-based auth is in
+        # use, so no sudo password is required in that case. sudo_password /
+        # VM_SUDO_PASSWORD remain available for environments that still need
+        # to pipe a sudo password (e.g. password-auth fallback).
+        self.sudo_password = sudo_password or os.getenv("VM_SUDO_PASSWORD") or None
+        self.use_passwordless_sudo = bool(self.key_path) and not self.sudo_password
+
         self._client = None
 
     def connect(self, timeout: int = 10):
-        """Establishes Paramiko SSH client connection."""
+        """Establishes Paramiko SSH client connection.
+
+        Prefers key-based authentication (CEPH_AI_SSH_KEY_PATH) over
+        plaintext password authentication. Falls back to password auth only
+        if no key path is configured, preserving compatibility with
+        environments that haven't migrated to key-based auth yet.
+        """
         import paramiko
         if self._client is not None:
             return self._client
 
+        if not self.key_path and not self.password:
+            raise RuntimeError(
+                "No SSH credentials configured. Set CEPH_AI_SSH_KEY_PATH "
+                "(preferred) or VM_SSH_PASSWORD."
+            )
+
         client = paramiko.SSHClient()
         client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        client.connect(
+
+        connect_kwargs: Dict[str, Any] = dict(
             hostname=self.host,
             port=self.port,
             username=self.user,
-            password=self.password,
             timeout=timeout,
-            # banner_timeout and auth_timeout are intentionally longer than the TCP
-            # connect timeout. Slow / just-booted VMs can take 20-30s for sshd to
-            # finish writing the SSH banner even after the TCP port is open.
-            banner_timeout=max(timeout, 30),
-            auth_timeout=max(timeout, 30)
+            banner_timeout=timeout,
+            auth_timeout=timeout,
         )
+
+        if self.key_path:
+            expanded_key_path = os.path.expanduser(self.key_path)
+            if not os.path.isfile(expanded_key_path):
+                raise RuntimeError(
+                    f"CEPH_AI_SSH_KEY_PATH is set but no key file was found "
+                    f"at '{expanded_key_path}'."
+                )
+            connect_kwargs["key_filename"] = expanded_key_path
+            # Still pass password (if any) as a fallback for encrypted keys
+            # that need a passphrase, or as a secondary auth method.
+            if self.password:
+                connect_kwargs["password"] = self.password
+        else:
+            connect_kwargs["password"] = self.password
+
+        client.connect(**connect_kwargs)
         self._client = client
         return self._client
 
@@ -75,41 +116,34 @@ class SSHExecutor:
         client = self.connect()
         start_time = time.time()
 
-        import base64
-        cmd_b64 = base64.b64encode(cmd.encode("utf-8")).decode("ascii")
-        full_cmd = f"echo '{self.sudo_password}' | sudo -S bash -c \"$(echo {cmd_b64} | base64 -d)\""
-        try:
-            stdin, stdout, stderr = client.exec_command(full_cmd, timeout=timeout)
+        if self.sudo_password:
+            full_cmd = f"echo '{self.sudo_password}' | sudo -S bash -c \"{cmd}\""
+        else:
+            # No sudo password configured. This is the expected path for
+            # key-based auth with NOPASSWD sudo. `-n` (non-interactive) fails
+            # fast with a clear error instead of hanging on a password
+            # prompt if that assumption ever turns out to be wrong.
+            full_cmd = f"sudo -n bash -c \"{cmd}\""
 
-            out_raw = stdout.read().decode("utf-8", errors="replace").strip()
-            err_raw = stderr.read().decode("utf-8", errors="replace").strip()
+        stdin, stdout, stderr = client.exec_command(full_cmd, timeout=timeout)
 
-            # Clean out sudo password prompt prefix without dropping actual stderr content
-            import re
-            err_clean = re.sub(r"\[sudo\] password for [^:]+:\s*", "", err_raw, flags=re.IGNORECASE).strip()
+        out_raw = stdout.read().decode("utf-8", errors="replace").strip()
+        err_raw = stderr.read().decode("utf-8", errors="replace").strip()
 
-            exit_code = stdout.channel.recv_exit_status()
-            duration_ms = int((time.time() - start_time) * 1000)
+        # Clean out sudo password prompt prefix without dropping actual stderr content
+        import re
+        err_clean = re.sub(r"\[sudo\] password for [^:]+:\s*", "", err_raw, flags=re.IGNORECASE).strip()
 
-            return ExecutionResult(
-                command=cmd,
-                stdout=out_raw,
-                stderr=err_clean,
-                exit_code=exit_code,
-                duration_ms=duration_ms
-            )
-        except Exception as e:
-            duration_ms = int((time.time() - start_time) * 1000)
-            logger.warning("SSH command execution error on '%s': %s", cmd, e)
-            # Reset client on connection breaks
-            self._client = None
-            return ExecutionResult(
-                command=cmd,
-                stdout="",
-                stderr=f"SSH execution exception or timeout: {e}",
-                exit_code=124,
-                duration_ms=duration_ms
-            )
+        exit_code = stdout.channel.recv_exit_status()
+        duration_ms = int((time.time() - start_time) * 1000)
+
+        return ExecutionResult(
+            command=cmd,
+            stdout=out_raw,
+            stderr=err_clean,
+            exit_code=exit_code,
+            duration_ms=duration_ms
+        )
 
     def test_connectivity(self, timeout: int = 10) -> Tuple[bool, str, Dict[str, Any]]:
         """
@@ -162,65 +196,6 @@ class SSHExecutor:
             logger.warning(f"SFTP upload failed for {local_path} -> {remote_path}: {e}")
             return False
 
-    def upload_path(self, local_path: str, remote_path: str) -> bool:
-        """
-        Uploads a local file or directory tree to the remote Ceph VM.
-
-        For directories: packages into a tar archive, uploads via SFTP, extracts on the
-        remote with `tar -xf ... -C /tmp/`, then verifies the extracted directory actually
-        exists before returning True.  Without this verification, a failed extraction returns
-        True and downstream recipe steps find nothing in /tmp/, silently hitting the
-        'else touch' fallback instead of triggering self-healing.
-        """
-        try:
-            if os.path.isfile(local_path):
-                return self.upload_file(local_path, remote_path)
-
-            elif os.path.isdir(local_path):
-                import tarfile
-                import tempfile
-                import uuid
-                import shutil
-
-                dir_name = os.path.basename(os.path.normpath(local_path))
-                unique_suffix = f"{int(time.time())}_{uuid.uuid4().hex[:6]}"
-                local_temp_dir = tempfile.mkdtemp(prefix="_ceph_tar_")
-                local_tar = os.path.join(local_temp_dir, f"{dir_name}_{unique_suffix}.tar")
-
-                with tarfile.open(local_tar, "w") as tar:
-                    tar.add(local_path, arcname=dir_name)
-
-                remote_tar = f"/tmp/_ceph_upload_{unique_suffix}_{dir_name}.tar"
-                remote_dir = f"/tmp/{dir_name}"
-
-                try:
-                    if not self.upload_file(local_tar, remote_tar):
-                        logger.warning(f"SFTP upload of tar archive failed: {local_tar} -> {remote_tar}")
-                        return False
-
-                    # Extract and verify in one command — if tar fails, the test command
-                    # will also fail and we get a clear non-zero exit code.
-                    extract_result = self.execute(
-                        f"tar -xf {remote_tar} -C /tmp/ && rm -f {remote_tar} && "
-                        f"[ -d {remote_dir} ] || {{ echo 'ERROR: extraction produced no directory at {remote_dir}'; exit 1; }}"
-                    )
-
-                    if not extract_result.is_success:
-                        logger.warning(
-                            f"Tar extraction failed or directory not found at {remote_dir}: "
-                            f"exit={extract_result.exit_code} stderr={extract_result.stderr!r}"
-                        )
-                        return False
-
-                    return True
-                finally:
-                    shutil.rmtree(local_temp_dir, ignore_errors=True)
-
-            return False
-        except Exception as e:
-            logger.warning(f"Upload path failed for {local_path} -> {remote_path}: {e}")
-            return False
-
     def close(self):
         """Closes the active SSH connection."""
         if self._client:
@@ -243,10 +218,6 @@ class MockSSHExecutor(SSHExecutor):
 
     def upload_file(self, local_path: str, remote_path: str) -> bool:
         """Mock upload always succeeds."""
-        return True
-
-    def upload_path(self, local_path: str, remote_path: str) -> bool:
-        """Mock upload path always succeeds."""
         return True
 
     def test_connectivity(self, timeout: int = 10) -> Tuple[bool, str, Dict[str, Any]]:
