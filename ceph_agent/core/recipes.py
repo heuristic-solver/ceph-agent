@@ -334,6 +334,21 @@ def build_rgw_recipe(
     ]
 
 
+def _extract_folder_name(payload_path: str, destination: Optional[str] = None) -> str:
+    """Extracts a clean, safe subfolder name for isolating CephFS workloads."""
+    if destination:
+        clean_dest = destination.replace("\\", "/").rstrip("/")
+        base = os.path.basename(clean_dest)
+        if base and base not in ("mnt", "cephfs", ""):
+            return base
+    raw_name = os.path.basename(os.path.normpath(payload_path))
+    for ext in [".tar.gz", ".tar.bz2", ".tar.xz", ".tgz", ".zip", ".tar", ".7z"]:
+        if raw_name.lower().endswith(ext):
+            raw_name = raw_name[:-len(ext)]
+            break
+    return raw_name or "workload"
+
+
 def build_cephfs_recipe(
     payload_path: str,
     destination: Optional[str] = None,
@@ -343,6 +358,8 @@ def build_cephfs_recipe(
     fs_name = _safe_pool_name(destination, default="cephfs")
     mount_point = "/mnt/cephfs"
     item_name = os.path.basename(payload_path)
+    target_dir_name = _extract_folder_name(payload_path, destination)
+    target_dir = f"{mount_point}/{target_dir_name}"
 
     return [
         ExecutionStep(
@@ -396,26 +413,26 @@ def build_cephfs_recipe(
         ExecutionStep(
             name="sync_payload_to_cephfs",
             command=(
-                # For directories: copy contents into mount root.
-                # For zip archives: extract directly into mount root via unzip with python3 zipfile fallback.
-                # For tar/tgz archives: extract directly into mount root via tar -xf.
-                # For single files: copy directly into mount root.
+                # For directories: copy contents into dedicated target folder /mnt/cephfs/<workload_name>/.
+                # For zip archives: extract into /mnt/cephfs/<workload_name>/, collapsing single nested dirs.
+                # For tar/tgz archives: extract into /mnt/cephfs/<workload_name>/, collapsing single nested dirs.
+                # For single files: copy directly into dedicated folder /mnt/cephfs/<workload_name>/.
                 # If absent, fail explicitly with exit 1 to trigger self-healing.
                 f"if [ -d /tmp/{item_name} ]; then "
-                f"  mkdir -p {mount_point} && cp -r /tmp/{item_name}/. {mount_point}/ && sync; "
+                f"  mkdir -p {target_dir} && cp -r /tmp/{item_name}/. {target_dir}/ && sync; "
                 f"elif [[ \"{item_name}\" == *.zip ]]; then "
-                f"  mkdir -p {mount_point} && (unzip -q -o /tmp/{item_name} -d {mount_point}/ || python3 -m zipfile -e /tmp/{item_name} {mount_point}/) && sync; "
+                f"  mkdir -p {target_dir} && (unzip -q -o /tmp/{item_name} -d {target_dir}/ || python3 -m zipfile -e /tmp/{item_name} {target_dir}/) && ([ -d {target_dir}/{target_dir_name} ] && cp -r {target_dir}/{target_dir_name}/. {target_dir}/ && rm -rf {target_dir}/{target_dir_name} || true) && sync; "
                 f"elif [[ \"{item_name}\" =~ \\.(tar|tar\\.gz|tgz|tar\\.bz2|tar\\.xz)$ ]]; then "
-                f"  mkdir -p {mount_point} && tar -xf /tmp/{item_name} -C {mount_point}/ && sync; "
+                f"  mkdir -p {target_dir} && tar -xf /tmp/{item_name} -C {target_dir}/ && ([ -d {target_dir}/{target_dir_name} ] && cp -r {target_dir}/{target_dir_name}/. {target_dir}/ && rm -rf {target_dir}/{target_dir_name} || true) && sync; "
                 f"elif [ -f /tmp/{item_name} ]; then "
-                f"  cp /tmp/{item_name} {mount_point}/ && sync; "
+                f"  mkdir -p {target_dir} && cp /tmp/{item_name} {target_dir}/ && sync; "
                 f"else "
                 f"  echo 'ERROR: payload /tmp/{item_name} not found on remote — upload or extraction failed' >&2 && exit 1; "
                 f"fi"
             ),
             description=(
-                f"Copy or unpack ingested payload into mounted CephFS volume at '{mount_point}'. "
-                f"Packaged ZIP/TAR archives and directory trees are expanded directly into the filesystem mount. "
+                f"Copy or unpack ingested payload into mounted CephFS volume at '{target_dir}'. "
+                f"Packaged ZIP/TAR archives and directory trees are expanded directly into their dedicated project folder. "
                 f"If /tmp/{item_name} is absent the step fails with exit 1, triggering self-healing."
             ),
             is_idempotent=True,
@@ -424,15 +441,15 @@ def build_cephfs_recipe(
         ExecutionStep(
             name="verify_cephfs_accessibility",
             command=(
-                f"sync && ls -la {mount_point}/ && "
-                f"COUNT=$(ls -1A {mount_point}/ | wc -l) && "
-                f"echo \"CephFS mount contains $COUNT item(s)\" && "
-                f"[ \"$COUNT\" -gt 0 ] || {{ echo 'ERROR: CephFS mount appears empty after sync'; exit 1; }} && "
-                f"(head -n 5 $(find {mount_point} -type f 2>/dev/null | head -n 1) >/dev/null 2>&1 || true) && "
-                f"echo 'Verified accessibility: CephFS POSIX filesystem mount is non-empty and readable at {mount_point}.'"
+                f"sync && ls -la {target_dir}/ && "
+                f"COUNT=$(ls -1A {target_dir}/ | wc -l) && "
+                f"echo \"CephFS folder {target_dir} contains $COUNT item(s)\" && "
+                f"[ \"$COUNT\" -gt 0 ] || {{ echo 'ERROR: CephFS directory {target_dir} appears empty after sync'; exit 1; }} && "
+                f"(head -n 5 $(find {target_dir} -type f 2>/dev/null | head -n 1) >/dev/null 2>&1 || true) && "
+                f"echo 'Verified accessibility: CephFS POSIX filesystem mount is non-empty and readable at {target_dir}.'"
             ),
             description=(
-                f"Verify CephFS mount at '{mount_point}' is non-empty and readable after payload sync. "
+                f"Verify CephFS folder at '{target_dir}' is non-empty and readable after payload sync. "
                 f"Fails explicitly if no files are visible or readable, triggering self-healing."
             ),
             is_idempotent=True,
