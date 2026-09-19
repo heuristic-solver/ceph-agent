@@ -7,6 +7,8 @@ timeout guards, and mock simulation support for testing without a live cluster.
 import os
 import time
 import logging
+import shlex
+from pathlib import Path
 from dataclasses import dataclass
 from typing import Tuple, Optional, Dict, Any, Callable
 from dotenv import load_dotenv
@@ -117,14 +119,13 @@ class SSHExecutor:
         start_time = time.time()
 
         if self.sudo_password:
-            full_cmd = f"echo '{self.sudo_password}' | sudo -S bash -c \"{cmd}\""
+            full_cmd = (
+                f"echo {shlex.quote(self.sudo_password)} | "
+                f"sudo -S bash -c {shlex.quote(cmd)}"
+            )
         else:
-            # No sudo password configured. This is the expected path for
-            # key-based auth with NOPASSWD sudo. `-n` (non-interactive) fails
-            # fast with a clear error instead of hanging on a password
-            # prompt if that assumption ever turns out to be wrong.
-            full_cmd = f"sudo -n bash -c \"{cmd}\""
-
+            full_cmd = f"sudo -n bash -c {shlex.quote(cmd)}"
+            
         stdin, stdout, stderr = client.exec_command(full_cmd, timeout=timeout)
 
         out_raw = stdout.read().decode("utf-8", errors="replace").strip()
@@ -196,6 +197,53 @@ class SSHExecutor:
             logger.warning(f"SFTP upload failed for {local_path} -> {remote_path}: {e}")
             return False
 
+    def upload_path(self, local_path: str, remote_path: str) -> bool:
+        """Upload a local file or directory to the remote Ceph VM using SFTP."""
+        try:
+            local = Path(local_path)
+
+            if not local.exists():
+                logger.warning(f"Local payload does not exist: {local_path}")
+                return False
+
+            client = self.connect()
+            sftp = client.open_sftp()
+
+            if local.is_file():
+                sftp.put(str(local), remote_path)
+            elif local.is_dir():
+                self._upload_directory(sftp, local, remote_path)
+            else:
+                logger.warning(f"Unsupported payload type: {local_path}")
+                sftp.close()
+                return False
+
+            sftp.close()
+            return True
+
+        except Exception as e:
+            logger.warning(
+                f"SFTP path upload failed for {local_path} -> {remote_path}: {e}"
+            )
+            return False
+
+
+    def _upload_directory(self, sftp, local_dir: Path, remote_dir: str):
+        """Recursively upload a local directory through SFTP."""
+        try:
+            sftp.mkdir(remote_dir)
+        except IOError:
+            # Directory may already exist.
+            pass
+
+        for item in local_dir.iterdir():
+            remote_item = f"{remote_dir.rstrip('/')}/{item.name}"
+
+            if item.is_dir():
+                self._upload_directory(sftp, item, remote_item)
+            else:
+                sftp.put(str(item), remote_item)
+
     def close(self):
         """Closes the active SSH connection."""
         if self._client:
@@ -217,6 +265,10 @@ class MockSSHExecutor(SSHExecutor):
         self.custom_handler: Optional[Callable[[str], Tuple[str, str, int]]] = None
 
     def upload_file(self, local_path: str, remote_path: str) -> bool:
+        """Mock upload always succeeds."""
+        return True
+
+    def upload_path(self, local_path: str, remote_path: str) -> bool:
         """Mock upload always succeeds."""
         return True
 

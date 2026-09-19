@@ -268,7 +268,7 @@ def build_rgw_recipe(
     tuning: Optional[Dict[str, Any]] = None
 ) -> List[ExecutionStep]:
     """Generates the ordered step sequence for RGW / S3 Object Storage provisioning."""
-    bucket_name = _safe_name(destination or payload_path)
+    bucket_name = _safe_name(destination or "aikyastor-agent")
     s3_uid = "agent_s3_user"
     obj_name = os.path.basename(payload_path)
     remote_file = f"/tmp/{obj_name}"
@@ -355,7 +355,7 @@ def build_cephfs_recipe(
     tuning: Optional[Dict[str, Any]] = None
 ) -> List[ExecutionStep]:
     """Generates the ordered step sequence for CephFS POSIX Filesystem provisioning."""
-    fs_name = _safe_pool_name(destination, default="cephfs")
+    fs_name = "cephfs"
     mount_point = "/mnt/cephfs"
     item_name = os.path.basename(payload_path)
     target_dir_name = _extract_folder_name(payload_path, destination)
@@ -368,16 +368,6 @@ def build_cephfs_recipe(
             description="Verify Metadata Server (MDS) daemon health and list active filesystems.",
             is_idempotent=True,
             danger_level="read-only"
-        ),
-        ExecutionStep(
-            name="ensure_cephfs_volume",
-            command=f"ceph fs volume create {fs_name} 2>/dev/null || ceph fs new {fs_name} {fs_name}_meta {fs_name}_data 2>/dev/null || ceph fs status {fs_name} || ceph fs status || ceph fs ls",
-            description=(
-                f"Ensure CephFS volume '{fs_name}' is initialized. "
-                f"Falls back across multiple Ceph version creation paradigms and existing filesystems."
-            ),
-            is_idempotent=True,
-            danger_level="moderate"
         ),
         ExecutionStep(
             name="setup_mountpoint",
@@ -396,45 +386,37 @@ def build_cephfs_recipe(
         ExecutionStep(
             name="mount_cephfs",
             command=(
-                # Verify mount is actually of type 'ceph' before declaring already-mounted.
-                # This prevents stale bind-mounts or tmpfs mounts from silently short-circuiting.
-                f"(mount | grep -E '{mount_point}.*type ceph' && echo 'already mounted as ceph') || "
-                f"mount -t ceph :/ {mount_point} -o name=admin,secret=$(ceph auth get-key client.admin 2>/dev/null || cat /etc/ceph/ceph.client.admin.keyring 2>/dev/null | grep key | awk '{{print $3}}') || "
-                f"mount -t ceph :/ {mount_point} -o name=admin || "
-                f"mount -t ceph :/{fs_name} {mount_point} -o name=admin"
+                f"if mountpoint -q {mount_point}; then "
+                f"  CURRENT_FS=$(grep ' {mount_point} ' /proc/mounts | "
+                f"sed -n 's/.*mds_namespace=\\([^, ]*\\).*/\\1/p'); "
+                f"  if [ \"$CURRENT_FS\" = \"{fs_name}\" ]; then "
+                f"    echo 'CephFS {fs_name} already mounted'; "
+                f"  else "
+                f"    umount {mount_point}; "
+                f"    mount -t ceph :/ {mount_point} -o name=admin,fs={fs_name}; "
+                f"  fi; "
+                f"else "
+                f"  mount -t ceph :/ {mount_point} -o name=admin,fs={fs_name}; "
+                f"fi"
             ),
-            description=(
-                f"Mount CephFS volume to '{mount_point}'. Validates that any existing mount is genuinely "
-                f"type 'ceph' before skipping — prevents stale mounts from silently masking a real CephFS mount."
-            ),
+            description=f"Mount CephFS '{fs_name}' to '{mount_point}'.",
             is_idempotent=True,
             danger_level="moderate"
         ),
         ExecutionStep(
             name="sync_payload_to_cephfs",
             command=(
-                # For directories: copy contents into dedicated target folder /mnt/cephfs/<workload_name>/.
-                # For zip archives: extract into /mnt/cephfs/<workload_name>/, collapsing single nested dirs.
-                # For tar/tgz archives: extract into /mnt/cephfs/<workload_name>/, collapsing single nested dirs.
-                # For single files: copy directly into dedicated folder /mnt/cephfs/<workload_name>/.
-                # If absent, fail explicitly with exit 1 to trigger self-healing.
-                f"if [ -d /tmp/{item_name} ]; then "
-                f"  mkdir -p {target_dir} && cp -r /tmp/{item_name}/. {target_dir}/ && sync; "
-                f"elif [[ \"{item_name}\" == *.zip ]]; then "
-                f"  mkdir -p {target_dir} && (unzip -q -o /tmp/{item_name} -d {target_dir}/ || python3 -m zipfile -e /tmp/{item_name} {target_dir}/) && ([ -d {target_dir}/{target_dir_name} ] && cp -r {target_dir}/{target_dir_name}/. {target_dir}/ && rm -rf {target_dir}/{target_dir_name} || true) && sync; "
-                f"elif [[ \"{item_name}\" =~ \\.(tar|tar\\.gz|tgz|tar\\.bz2|tar\\.xz)$ ]]; then "
-                f"  mkdir -p {target_dir} && tar -xf /tmp/{item_name} -C {target_dir}/ && ([ -d {target_dir}/{target_dir_name} ] && cp -r {target_dir}/{target_dir_name}/. {target_dir}/ && rm -rf {target_dir}/{target_dir_name} || true) && sync; "
-                f"elif [ -f /tmp/{item_name} ]; then "
-                f"  mkdir -p {target_dir} && cp /tmp/{item_name} {target_dir}/ && sync; "
-                f"else "
-                f"  echo 'ERROR: payload /tmp/{item_name} not found on remote — upload or extraction failed' >&2 && exit 1; "
-                f"fi"
+                f"test -e {payload_path} || "
+                f"{{ echo 'ERROR: payload {payload_path} not found on remote'; exit 1; }}; "
+                f"mkdir -p {target_dir}; "
+                f"rm -rf {target_dir}/*; "
+                f"cp -a {payload_path}/. {target_dir}/; "
+                f"sync; "
+                f"test -e {target_dir} || "
+                f"{{ echo 'ERROR: payload copy failed'; exit 1; }}; "
+                f"echo 'Payload copied to {target_dir}'"
             ),
-            description=(
-                f"Copy or unpack ingested payload into mounted CephFS volume at '{target_dir}'. "
-                f"Packaged ZIP/TAR archives and directory trees are expanded directly into their dedicated project folder. "
-                f"If /tmp/{item_name} is absent the step fails with exit 1, triggering self-healing."
-            ),
+            description=f"Copy workload payload into CephFS directory '{target_dir}'.",
             is_idempotent=True,
             danger_level="moderate"
         ),
