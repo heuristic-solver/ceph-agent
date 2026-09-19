@@ -150,15 +150,24 @@ def build_rgw_recipe(
         )
     ]
 
-
 def build_cephfs_recipe(
     payload_path: str,
     destination: Optional[str] = None,
     tuning: Optional[Dict[str, Any]] = None
 ) -> List[ExecutionStep]:
-    """Generates the ordered step sequence for CephFS POSIX Filesystem provisioning."""
-    fs_name = _safe_pool_name(destination, default="cephfs")
+    """Generates the workflow for storing a workload inside the existing CephFS."""
+
+    # There is ONE existing CephFS filesystem.
+    fs_name = "cephfs"
     mount_point = "/mnt/cephfs"
+
+    tuning = tuning or {}
+
+    # This is the actual uploaded folder name, NOT the CephFS name.
+    workload_name = tuning.get("workload_name") or os.path.basename(payload_path)
+    workload_name = _safe_name(workload_name)
+
+    target_dir = f"{mount_point}/{workload_name}"
 
     return [
         ExecutionStep(
@@ -168,13 +177,7 @@ def build_cephfs_recipe(
             is_idempotent=True,
             danger_level="read-only"
         ),
-        ExecutionStep(
-            name="ensure_cephfs_volume",
-            command=f"ceph fs volume create {fs_name} || ceph fs status {fs_name}",
-            description=f"Ensure CephFS filesystem volume '{fs_name}' is initialized.",
-            is_idempotent=True,
-            danger_level="moderate"
-        ),
+
         ExecutionStep(
             name="setup_mountpoint",
             command=f"mkdir -p {mount_point}",
@@ -182,6 +185,7 @@ def build_cephfs_recipe(
             is_idempotent=True,
             danger_level="moderate"
         ),
+
         ExecutionStep(
             name="load_ceph_module",
             command="modprobe ceph",
@@ -189,15 +193,56 @@ def build_cephfs_recipe(
             is_idempotent=True,
             danger_level="moderate"
         ),
+
         ExecutionStep(
             name="mount_cephfs",
-            command=f"mount -t ceph :/ {mount_point} -o name=admin,fs={fs_name} || mount -t ceph :/{fs_name} {mount_point} -o name=admin || mount -t ceph :/ {mount_point} -o name=admin",
-            description=f"Mount CephFS '{fs_name}' to '{mount_point}'.",
+            command=(
+                f"if mountpoint -q {mount_point}; then "
+                f"CURRENT_FS=$(grep ' {mount_point} ' /proc/mounts "
+                f"| sed -n 's/.*mds_namespace=\\([^, ]*\\).*/\\1/p'); "
+                f"if [ \"$CURRENT_FS\" = \"{fs_name}\" ]; then "
+                f"echo 'CephFS {fs_name} already mounted'; "
+                f"else "
+                f"umount {mount_point}; "
+                f"mount -t ceph :/ {mount_point} "
+                f"-o name=admin,fs={fs_name}; "
+                f"fi; "
+                f"else "
+                f"mount -t ceph :/ {mount_point} "
+                f"-o name=admin,fs={fs_name}; "
+                f"fi"
+            ),
+            description=f"Mount the existing CephFS filesystem '{fs_name}'.",
             is_idempotent=True,
             danger_level="moderate"
-        )
-    ]
+        ),
 
+        ExecutionStep(
+            name="sync_payload_to_cephfs",
+            command=(
+                f"test -d {payload_path} || "
+                f"{{ echo 'ERROR: payload directory {payload_path} not found on remote'; exit 1; }}; "
+                f"mkdir -p {target_dir}; "
+                f"rm -rf {target_dir}/*; "
+                f"cp -a {payload_path}/. {target_dir}/; "
+                f"sync; "
+                f"test -d {target_dir} || "
+                f"{{ echo 'ERROR: payload copy failed'; exit 1; }}; "
+                f"echo 'Payload copied to {target_dir}'"
+            ),
+            description=f"Copy the uploaded workload into '{target_dir}'.",
+            is_idempotent=True,
+            danger_level="moderate"
+        ),
+
+        ExecutionStep(
+            name="verify_cephfs_accessibility",
+            command=f"test -d {target_dir} && ls -la {target_dir}",
+            description=f"Verify workload directory '{target_dir}' is accessible.",
+            is_idempotent=True,
+            danger_level="read-only"
+        ),
+    ]
 
 def build_rados_recipe(
     payload_path: str,
