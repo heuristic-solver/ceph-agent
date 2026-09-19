@@ -142,9 +142,11 @@ class RemediationRetriever:
             resolves = json.loads(row["resolves_errors_or_states"])
             score = abs(float(row["rank"]))
 
-            # Boost score if matching target workflow
-            if workflow and (workflow in wfs or "CLUSTER_OPS" in wfs):
-                score += 2.0
+            # Boost score if matching target workflow; penalize incompatible cross-workflow matches
+            if workflow and (workflow in wfs or "CLUSTER_OPS" in wfs or "RADOS" in wfs):
+                score += 5.0
+            elif workflow:
+                score -= 10.0
 
             results.append({
                 "id": row["id"],
@@ -356,6 +358,22 @@ class RemediationRetriever:
                 llm_reasoning="Synthesized dynamic pool quota expansion with escalation."
             )
 
+        # Domain Pattern 2b: PG Limit Exceeded (ERANGE / mon_max_pg_per_osd)
+        if "erange" in stderr_lower or "mon_max_pg_per_osd" in stderr_lower or "exceeds the mon_max_pg_per_osd" in stderr_lower or "cumulative pgs per osd" in stderr_lower:
+            pg_limit_cmd = "ceph config set global mon_max_pg_per_osd 1000 && ceph config set global mon_pg_warn_max_per_osd 1000"
+            if not is_cmd_failed(pg_limit_cmd):
+                return RemediationProposal(
+                    fix_command=pg_limit_cmd,
+                    danger_level="moderate",
+                    rationale="Cluster PG ceiling exceeded (mon_max_pg_per_osd); dynamically raising global PG threshold to 1000.",
+                    doc_citation="Ceph PG and Pool Configuration Reference",
+                    confidence=0.96,
+                    applicable_workflow=context.workflow or "CLUSTER_OPS",
+                    health_code="POOL_PG_NUM_NOT_POWER_OF_TWO",
+                    idempotent=True,
+                    llm_reasoning="Synthesized dynamic mon_max_pg_per_osd threshold expansion."
+                )
+
         # Domain Pattern 3: CephX Caps / Permission Denied (EACCES / [errno 13])
         if ("permission denied" in stderr_lower or "errno 13" in stderr_lower or "auth_bad_caps" in stderr_lower) and "nosuchuser" not in stderr_lower:
             auth_cmd = "ceph auth caps client.admin mon 'allow *' osd 'allow *' mds 'allow *' mgr 'allow *'"
@@ -405,7 +423,7 @@ class RemediationRetriever:
                 )
 
         # Domain Pattern 5: CephFS MDS Failover / Offline
-        if "no mds is up" in stderr_lower or "fs_with_failed_mds" in stderr_lower or "mds daemon" in stderr_lower or "joinable" in stderr_lower:
+        if "no mds" in stderr_lower or "metadata server" in stderr_lower or "fs_with_failed_mds" in stderr_lower or "mds daemon" in stderr_lower or "joinable" in stderr_lower:
             mds_cmd = "ceph fs set {volume} joinable true"
             if not is_cmd_failed(mds_cmd):
                 return RemediationProposal(
@@ -419,6 +437,20 @@ class RemediationRetriever:
                     idempotent=True,
                     llm_reasoning="Synthesized CephFS joinable recovery."
                 )
+
+        # Domain Pattern 6: Payload Missing / Remote Ingestion Self-Healing
+        if "payload" in stderr_lower and ("not found on remote" in stderr_lower or "upload or extraction failed" in stderr_lower or "no such file or directory" in stderr_lower):
+            return RemediationProposal(
+                fix_command="RE_INGEST_PAYLOAD",
+                danger_level="read-only",
+                rationale="Payload file or directory is missing on the remote host; re-triggering remote ingestion and extraction.",
+                doc_citation="Ceph Agent Ingestion Protocol",
+                confidence=0.96,
+                applicable_workflow=context.workflow or "CephFS",
+                health_code=None,
+                idempotent=True,
+                llm_reasoning="Synthesized dynamic payload re-ingestion and extraction action."
+            )
 
         # Check for explicit health code mentioned in query
         explicit_codes = set(re.findall(r'\b[A-Z][A-Z0-9_]{3,}\b', f"{context.stderr} {context.cluster_health or ''}"))
@@ -456,7 +488,15 @@ class RemediationRetriever:
             if direct_spec:
                 break
 
-        chosen_spec = direct_spec or (command_specs[0] if command_specs else None)
+        # Filter command specs by workflow compatibility
+        compatible_specs = [
+            s for s in command_specs
+            if not context.workflow or context.workflow in s.get("applicable_workflows", [])
+            or "CLUSTER_OPS" in s.get("applicable_workflows", [])
+            or "RADOS" in s.get("applicable_workflows", [])
+        ]
+
+        chosen_spec = direct_spec or (compatible_specs[0] if compatible_specs else (command_specs[0] if command_specs else None))
 
         if chosen_spec:
             cmd = chosen_spec.get("canonical_example", chosen_spec.get("command", "ceph status"))
@@ -469,9 +509,19 @@ class RemediationRetriever:
                     cmd = cmd.replace("<poolname>", pool_part)
                     cmd = cmd.replace("<image-name>", context.target_destination.split("/")[-1])
                     cmd = cmd.replace("<uid>", "s3user")
+                cmd_lower = cmd.lower()
+                if any(w in cmd_lower for w in ["delete", "purge", "rm", "destroy", "erase", "format", "zap"]):
+                    inferred_danger = "destructive"
+                elif any(w in cmd_lower for w in ["dump", "status", "stat", "ls", "list", "get", "show", "tree", "df", "version", "info"]):
+                    inferred_danger = "read-only"
+                elif any(w in cmd_lower for w in ["set", "init", "create", "restart", "apply", "enable", "disable"]):
+                    inferred_danger = "moderate"
+                else:
+                    inferred_danger = chosen_spec.get("danger_level", "read-only")
+
                 return RemediationProposal(
                     fix_command=cmd,
-                    danger_level=chosen_spec.get("danger_level", "read-only"),
+                    danger_level=inferred_danger,
                     rationale=f"Selected {chosen_spec['id']} to resolve: {chosen_spec['operational_intent']}",
                     doc_citation=f"Command Spec: {chosen_spec['id']}",
                     confidence=0.88 if direct_spec else 0.78,

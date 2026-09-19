@@ -6,6 +6,7 @@ Tests:
 - Dynamic fault injection and automated self-healing recovery.
 - State machine lifecycle and SQLite trace persistence.
 - Iteration budget guardrails and failure containment.
+- Regression: RGW bucket creation uses S3 API (boto3), NOT broken `radosgw-admin bucket create`.
 """
 
 import os
@@ -63,6 +64,18 @@ class TestCephSelfHealingAgent(unittest.TestCase):
         filepath = self._create_mock_file("analytics.parquet", parquet_magic)
 
         mock_ssh = MockSSHExecutor(default_exit_code=0)
+        # Register a handler that simulates boto3 bucket creation step succeeding
+        def rgw_handler(cmd: str):
+            if "radosgw-admin user create" in cmd or "user info" in cmd:
+                return '{"user_id": "agent_s3_user", "keys": [{"access_key": "TESTKEY", "secret_key": "TESTSECRET"}]}', "", 0
+            if "base64 -d" in cmd and "_ceph_s3_upload.py" in cmd:
+                # Simulate successful S3 bucket creation and upload
+                return "bucket created: analytics_parquet\nupload complete: analytics.parquet -> analytics_parquet", "", 0
+            if "radosgw-admin bucket list" in cmd:
+                return '["analytics_parquet"]', "", 0
+            return "ok", "", 0
+        mock_ssh.custom_handler = rgw_handler
+
         agent = CephSelfHealingAgent(
             classifier=self.classifier,
             retriever=self.retriever,
@@ -91,6 +104,27 @@ class TestCephSelfHealingAgent(unittest.TestCase):
         )
 
         summary = agent.run(payload_path=project_dir)
+        self.assertEqual(summary.status, "SUCCESS")
+        self.assertEqual(summary.target_workflow, "CephFS")
+        self.assertEqual(summary.steps_completed, summary.steps_total)
+
+    def test_cephfs_zip_archive_clean_execution(self):
+        """Clean-path: Packaged ZIP archive provisions via CephFS with extraction DAG."""
+        import zipfile
+        zip_path = os.path.join(self.temp_dir, "my_microservice.zip")
+        with zipfile.ZipFile(zip_path, "w") as zf:
+            zf.writestr("app.py", "from flask import Flask\napp = Flask(__name__)")
+            zf.writestr("requirements.txt", "flask==2.3.0")
+
+        mock_ssh = MockSSHExecutor(default_exit_code=0)
+        agent = CephSelfHealingAgent(
+            classifier=self.classifier,
+            retriever=self.retriever,
+            executor=mock_ssh,
+            tracker=self.tracker
+        )
+
+        summary = agent.run(payload_path=zip_path)
         self.assertEqual(summary.status, "SUCCESS")
         self.assertEqual(summary.target_workflow, "CephFS")
         self.assertEqual(summary.steps_completed, summary.steps_total)
@@ -168,7 +202,9 @@ class TestCephSelfHealingAgent(unittest.TestCase):
             nonlocal user_created, first_bucket_list_attempt
             if "radosgw-admin user create" in cmd:
                 user_created = True
-                return '{"user_id": "agent_s3_user"}', "", 0
+                return '{"user_id": "agent_s3_user", "keys": [{"access_key": "TESTKEY", "secret_key": "TESTSECRET"}]}', "", 0
+            if "base64 -d" in cmd and "_ceph_s3_upload.py" in cmd:
+                return "bucket created: events_parquet\nupload complete: events.parquet -> events_parquet", "", 0
             if "radosgw-admin bucket list" in cmd and first_bucket_list_attempt:
                 first_bucket_list_attempt = False
                 return "", "NoSuchUser: AccessDenied S3 user not found", 1
@@ -188,6 +224,52 @@ class TestCephSelfHealingAgent(unittest.TestCase):
         self.assertEqual(summary.target_workflow, "RGW")
         self.assertGreater(len(summary.healing_actions_applied), 0)
         self.assertTrue(user_created)
+
+    def test_rgw_bucket_creation_uses_s3_api_not_radosgw_admin(self):
+        """
+        Regression Test: Verify that the RGW recipe uses the S3 API (boto3 via python3 -c)
+        to create buckets, NOT the broken `radosgw-admin bucket create` command.
+
+        Background: `radosgw-admin bucket create` only re-links existing S3 buckets and silently
+        fails when called for a new bucket, masked by `|| true`. This caused the colleague's
+        demo to show bucket creation as [OK] while `radosgw-admin bucket list` returned [].
+        """
+        parquet_magic = b"PAR1"
+        filepath = self._create_mock_file("hierarchy.png", b"\x89PNG\r\n")
+
+        mock_ssh = MockSSHExecutor(default_exit_code=0)
+        s3_api_call_made = False
+        radosgw_bucket_create_called = False
+
+        def audit_handler(cmd: str):
+            nonlocal s3_api_call_made, radosgw_bucket_create_called
+            # Check for the broken old command
+            if "radosgw-admin bucket create" in cmd:
+                radosgw_bucket_create_called = True
+            # Check for the correct new S3 API approach (base64-decoded script)
+            if "base64 -d" in cmd and "_ceph_s3_upload.py" in cmd:
+                s3_api_call_made = True
+                return "bucket created: hierarchy_png\nupload complete: hierarchy.png -> hierarchy_png", "", 0
+            if "radosgw-admin user" in cmd:
+                return '{"user_id": "agent_s3_user", "keys": [{"access_key": "TESTKEY", "secret_key": "TESTSECRET"}]}', "", 0
+            if "radosgw-admin bucket list" in cmd:
+                return '["hierarchy_png"]', "", 0
+            return "ok", "", 0
+
+        mock_ssh.custom_handler = audit_handler
+
+        agent = CephSelfHealingAgent(
+            classifier=self.classifier,
+            retriever=self.retriever,
+            executor=mock_ssh,
+            tracker=self.tracker
+        )
+
+        summary = agent.run(payload_path=filepath)
+        self.assertEqual(summary.status, "SUCCESS")
+        self.assertTrue(s3_api_call_made, "RGW recipe must call the S3 API (boto3) to create buckets")
+        self.assertFalse(radosgw_bucket_create_called, 
+                         "RGW recipe must NOT use `radosgw-admin bucket create` — it silently fails on Reef/Squid")
 
     def test_max_retry_budget_exhaustion(self):
         """
